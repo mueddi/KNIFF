@@ -10,7 +10,7 @@ jobs:
       - name: Registrierung (200 beim ersten Mal, 409 danach – beides ok)
         run: |
           code=$(curl -sS -o /tmp/reg.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/register" \
+            "https://kniff.app/api/auth/register" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123","display_name":"Smoke","terms_accepted":true}')
           echo "Register: HTTP $code"; cat /tmp/reg.json; echo ""
@@ -19,7 +19,7 @@ jobs:
       - name: Login muss funktionieren
         run: |
           code=$(curl -sS -o /tmp/login.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/login" \
+            "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}')
           echo "Login: HTTP $code"
@@ -29,7 +29,7 @@ jobs:
       - name: Falsches Passwort muss 401 geben
         run: |
           code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/login" \
+            "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"absichtlich-falsch"}')
           echo "Falsches Passwort: HTTP $code"
