@@ -205,3 +205,27 @@ def test_return_base_bleibt_auf_der_startadresse():
     for boese in ("https://boese.example", "https://schrittweise-2-0.boese.example",
                   "http://schrittweise-2-0.vercel.app", "https://evil.vercel.app"):
         assert _return_base(Req({"origin": boese})) == konfiguriert
+
+
+def test_return_base_kennt_die_vorschau_auch_unter_eigener_domain(monkeypatch):
+    """Laeuft die Produktion unter kniff.app, steckt der Projektname nicht mehr
+    in der Live-Adresse – die Vorschau muss trotzdem auf sich selbst
+    zurueckfuehren, sonst landet man nach der Zahlung scheinbar ausgeloggt."""
+    from app.routers.pay import _return_base
+
+    monkeypatch.setattr(settings, "frontend_base_url", "https://kniff.app")
+    monkeypatch.setenv("VERCEL_ENV", "preview")
+    monkeypatch.setenv("VERCEL_BRANCH_URL", "schrittweise-2-0-git-mein-zweig-mahmmoud-said.vercel.app")
+    monkeypatch.setenv("VERCEL_URL", "schrittweise-2-0-7bh8v7uza-mahmmoud-said.vercel.app")
+
+    class Req:
+        def __init__(self, headers):
+            self.headers = headers
+
+    assert _return_base(Req({"origin": "https://schrittweise-2-0-git-mein-zweig-mahmmoud-said.vercel.app"})) \
+        == "https://schrittweise-2-0-git-mein-zweig-mahmmoud-said.vercel.app"
+    assert _return_base(Req({"origin": "https://schrittweise-2-0-7bh8v7uza-mahmmoud-said.vercel.app"})) \
+        == "https://schrittweise-2-0-7bh8v7uza-mahmmoud-said.vercel.app"
+    assert _return_base(Req({"origin": "https://kniff.app"})) == "https://kniff.app"
+    for boese in ("https://evil.vercel.app", "https://kniff.app.boese.example", "http://kniff.app"):
+        assert _return_base(Req({"origin": boese})) == "https://kniff.app"

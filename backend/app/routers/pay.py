@@ -10,6 +10,7 @@ import hashlib
 import hmac
 import json
 import logging
+import os
 import time
 
 import httpx
@@ -58,6 +59,13 @@ def _return_base(request: Request | None) -> str:
                 origin = f"{scheme}://{rest.split('/', 1)[0]}"
     if not origin or origin == configured:
         return configured
+    # Eine Vorschau kennt ihre eigene Adresse aus der Vercel-Umgebung. Noetig,
+    # seit die Produktion unter kniff.app laeuft: der Projektname
+    # (schrittweise-2-0-git-…) steckt dann nicht mehr in der Live-Adresse.
+    eigene = {f"https://{os.environ.get(k, '').strip()}"
+              for k in ("VERCEL_URL", "VERCEL_BRANCH_URL") if os.environ.get(k, "").strip()}
+    if origin in eigene:
+        return origin
     try:
         host = origin.split("://", 1)[1].split("/", 1)[0].lower()
         conf_host = configured.split("://", 1)[1].split("/", 1)[0].lower()
