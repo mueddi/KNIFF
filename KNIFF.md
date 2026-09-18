@@ -29,7 +29,7 @@ kumpelhaft, geduldig, nie belehrend, nie überwachend (steht so im
 seriös-kompetent, aber warm und klar – kein Bildungsjargon, keine KI-Buzzwords.
 
 > **Noch auf den alten Namen:** die Live-Adresse (`schrittweise-2-0.vercel.app`),
-> das Vercel-Projekt, der GitHub-Repo-Name, die Backup-Dateinamen und die
+> das Vercel-Projekt, die Backup-Dateinamen und die
 > Absender-Domain in `smtp_from`. Das sind Infrastruktur-Bezeichner – sie zu
 > ändern bricht Deploy und Backups und gehört in einen eigenen, bewussten
 > Schritt (siehe unten «Umbenennen: was noch offen ist»).
@@ -284,7 +284,7 @@ eine eigene, bewusste Umstellung:
 | Was | Heute | Warum offen |
 |---|---|---|
 | Live-Adresse | `schrittweise-2-0.vercel.app` | Umbenennen des Vercel-Projekts ändert die URL – erst eine eigene Domain (z. B. `kniff.ch`) verbinden, dann umstellen |
-| GitHub-Repo | `mueddi/Schrittweise-2.0` | Umbenennen bricht alle bestehenden Klone und den Deploy-Workflow, bis er nachgezogen ist |
+| ~~GitHub-Repo~~ | `mueddi/KNIFF` seit 9.9. | Erledigt. Der Deploy brach dabei wie vorhergesagt (Vercel-CLI riet den Projektnamen aus dem Ordner «KNIFF»); seither stehen `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` fest in `deploy.yml`. Alte Klone und Links funktionieren über GitHubs Weiterleitung |
 | Absender der Mails | `no-reply@schrittweise.ch` | Die Domain muss zuerst existieren und im Mailversand freigegeben sein, sonst landen Mails im Spam |
 | Backup-Dateinamen, Log-Namen, `sw_token` im Browser | `schrittweise…` | Rein intern; ein Wechsel würde alte Backups schwerer auffindbar machen und alle Nutzer ausloggen |
 

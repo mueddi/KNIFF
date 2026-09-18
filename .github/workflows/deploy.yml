@@ -87,9 +87,17 @@ jobs:
           print("Sidecar geschrieben mit Schlüsseln:", sorted(env))
           EOF
 
+      # Projekt ausdruecklich benennen, statt es die CLI raten zu lassen: ohne
+      # .vercel/project.json (gitignored) leitet sie den Namen aus dem
+      # Ordner ab – seit der Umbenennung des Repositories auf KNIFF war das
+      # «KNIFF», und Grossbuchstaben lehnt Vercel ab (400, Lauf 116 am 9.9.).
+      # Die beiden Kennungen sind keine Geheimnisse; ohne VERCEL_TOKEN
+      # kann man damit nichts anfangen.
       - name: Zu Vercel deployen
         env:
           VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: team_VF5wWsu4Q9kAXd24n6Vg768u
+          VERCEL_PROJECT_ID: prj_CcBFBsHDyuuMHYhB3QqL95NyGRMU
         run: |
           # pipefail ist hier kein Detail, sondern der Kern: ohne ihn meldet
           # eine Verkettung den Status des LETZTEN Befehls – und `tee` gelingt

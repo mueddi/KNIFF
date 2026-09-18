@@ -1,7 +1,8 @@
 # Kniff – Arbeitsanweisung
 
 KI-Mathe-Tutor für die Schweizer Mittelstufe, Oberstufe und das Gymnasium.
-Live: https://schrittweise-2-0.vercel.app · Repository: `mueddi/Schrittweise-2.0`
+Live: https://schrittweise-2-0.vercel.app · Repository: `mueddi/KNIFF` (bis 9.9.
+`mueddi/Schrittweise-2.0`; GitHub leitet den alten Namen weiter)
 
 Der Betreiber ist **kein Programmierer**. Erkläre auf Deutsch, in ganzen Sätzen,
 ohne Fachjargon – und wenn Fachbegriffe unvermeidlich sind, erkläre sie beim
