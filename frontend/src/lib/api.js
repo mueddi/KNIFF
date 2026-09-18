@@ -49,6 +49,7 @@ async function handle(res) {
     const msg = data?.detail || data?.message || `Fehler ${res.status}`;
     const err = new Error(typeof msg === "string" ? msg : "Unbekannter Fehler");
     err.status = res.status; // z.B. 402 = Kontingent aufgebraucht -> Kauf-Hinweis
+    err.grund = res.headers.get("x-kniff-grund") || null; // trial | fairuse | guthaben
     throw err;
   }
   return data;

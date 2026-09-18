@@ -422,7 +422,8 @@ export default function Lernen() {
         // Guthaben leer: Nachricht wurde NICHT gesendet – optimistische Bubble
         // entfernen, Entwurf zurueckgeben und freundlich zum Laden einladen.
         if (myToken === reqToken.current) {
-          setState((s) => (s ? { ...s, messages: [...s.messages.filter((m) => !String(m.id).startsWith("tmp-")), { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", text: "" }] } : s));
+          const grund = res.headers.get("x-kniff-grund");
+          setState((s) => (s ? { ...s, messages: [...s.messages.filter((m) => !String(m.id).startsWith("tmp-")), { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", grund, text: "" }] } : s));
           zurueckgeben();
           shell.reloadQuota?.();
         }
@@ -601,7 +602,7 @@ export default function Lernen() {
       nav(`/app/lernen/${st.attempt.id}`);
     } catch (e) {
       if (e.status === 402) {
-        setState((s) => (s ? { ...s, messages: [...s.messages, { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", text: "" }] } : s));
+        setState((s) => (s ? { ...s, messages: [...s.messages, { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", grund: e.grund, text: "" }] } : s));
       } else {
         setState((s) => (s ? { ...s, messages: [...s.messages, { id: `err-${Date.now()}`, role: "tutor", text: e.message }] } : s));
       }
@@ -651,7 +652,7 @@ export default function Lernen() {
       if (res.image_path) setPendingImage(res.image_path);
     } catch (err) {
       if (err.status === 402) {
-        setState((s) => (s ? { ...s, messages: [...s.messages, { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", text: "" }] } : s));
+        setState((s) => (s ? { ...s, messages: [...s.messages, { id: `quota-${Date.now()}`, role: "tutor", kind: "quota", grund: err.grund, text: "" }] } : s));
       } else {
         setState((s) => (s ? { ...s, messages: [...s.messages, { id: `err-${Date.now()}`, role: "tutor", text: err.message }] } : s));
       }
@@ -777,17 +778,31 @@ export default function Lernen() {
               lastLevel = m.hint_level;
             }
             if (m.kind === "quota") {
+              // Drei Gruende, drei Karten: Probe aufgebraucht (Plus anbieten),
+              // Fair-Use erreicht (freundlich, ohne Verkauf), altes Guthaben leer.
+              const grund = m.grund || (shell.quota?.abo_enabled ? "trial" : "guthaben");
+              const plusName = shell.quota?.plus_name || "Kniff Plus";
+              const titel = grund === "fairuse"
+                ? t("🎉 Wow – du hast diesen Monat riesig viel geübt!", "🎉 Wow – you practised a huge amount this month!")
+                : grund === "trial"
+                  ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
+                  : t("⚡ Dein Guthaben ist aufgebraucht", "⚡ Your balance is used up");
+              const text = grund === "fairuse"
+                ? t("Deine Nachricht wurde nicht gesendet. Ab dem 1. geht es weiter – bis dahin: gut gemacht.", "Your message was not sent. It continues on the 1st – until then: well done.")
+                : grund === "trial"
+                  ? t(`Deine Nachricht wurde nicht gesendet. Mit ${plusName} übst du weiter – so viel du willst, jederzeit kündbar.`, `Your message was not sent. With ${plusName} you keep practising – as much as you like, cancel anytime.`)
+                  /* Bei einer Schnellantwort war das Eingabefeld nie gefuellt –
+                     die alte Formulierung schickte einen auf die Suche. */
+                  : t("Deine Nachricht wurde nicht gesendet. Lad Tokens oder warte auf die Gratis-Tokens vom nächsten Monat.", "Your message was not sent. Top up tokens or wait for next month's free tokens.");
               out.push(
                 <div key={m.id} style={{ alignSelf: "flex-start", maxWidth: 420, background: "#fffaf0", border: "1px solid #f0e2c4", borderRadius: 16, padding: "14px 16px" }}>
-                  <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>{t("⚡ Dein Guthaben ist aufgebraucht", "⚡ Your balance is used up")}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5, marginBottom: 10 }}>
-                    {/* Bei einer Schnellantwort war das Eingabefeld nie gefuellt –
-                        die alte Formulierung schickte einen auf die Suche. */}
-                    {t("Deine Nachricht wurde nicht gesendet. Lad Tokens oder warte auf die Gratis-Tokens vom nächsten Monat.", "Your message was not sent. Top up tokens or wait for next month's free tokens.")}
-                  </div>
-                  <button onClick={() => nav("/app/preise")} className="btn-primary" style={{ border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }}>
-                    {t("Tokens laden →", "Top up tokens →")}
-                  </button>
+                  <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>{titel}</div>
+                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5, marginBottom: grund === "fairuse" ? 0 : 10 }}>{text}</div>
+                  {grund !== "fairuse" && (
+                    <button onClick={() => nav("/app/preise")} className="btn-primary" style={{ border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }}>
+                      {grund === "trial" ? t(`${plusName} aktivieren →`, `Activate ${plusName} →`) : t("Tokens laden →", "Top up tokens →")}
+                    </button>
+                  )}
                 </div>
               );
               continue;

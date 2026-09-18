@@ -15,7 +15,7 @@ from ..deps import require_parent, require_student
 from ..models import ParentLink, Role, User
 from ..schemas import ParentChildSummary, ParentLinkOut, ParentRedeem
 from ..security import new_invite_code
-from ..services import aggregates
+from ..services import aggregates, quota
 
 router = APIRouter(prefix="/api/parents", tags=["parents"])
 
@@ -26,6 +26,9 @@ def _summary_respecting_share(db: Session, student: User) -> dict:
     Zentral, damit JEDER Eltern-Pfad (redeem wie children) die Freigabe achtet.
     """
     summary = aggregates.build_summary(db, student)
+    # Abo-Stand des Kindes: Eltern zahlen, also duerfen sie ihn sehen.
+    summary["student_id"] = student.id
+    summary["plus"] = quota.quota_state(db, student)
     if not summary["shared"]:
         summary.update({"autonomy_rate": 0, "solved_count": 0, "active_days": 0,
                         "dranbleiben_delta": 0, "top_struggles": [], "daily_activity": [0] * 7,

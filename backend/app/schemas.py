@@ -289,8 +289,14 @@ class FeedbackOut(BaseModel):
 
 # ---------- Zahlung ----------
 class CheckoutRequest(BaseModel):
-    # Schluessel eines Eintrags in routers.pay.PACKAGES
-    package: str = Field(default="power", max_length=20)
+    # Kniff Plus: "monat" oder "jahr"; student_id = Eltern kaufen fuer ihr Kind
+    intervall: str = Field(default="monat", max_length=8)
+    student_id: int | None = None
+
+
+class AboRequest(BaseModel):
+    # Eltern kuendigen fuer ihr Kind; Schueler:innen lassen das Feld weg
+    student_id: int | None = None
 
 
 # ---------- Quota ----------
@@ -305,6 +311,19 @@ class QuotaOut(BaseModel):
     percent_used: int  # vom Gratis-Kontingent
     # Betreiber-Konto / Schul-Plan: keine Abbuchung, unbegrenzte Aufgaben
     unlimited: bool = False
+    # Kniff Plus: school | plus | trial | gratis (Altpfad) | guthaben | gesperrt
+    stufe: str = "gratis"
+    abo_enabled: bool = False
+    plus_name: str = "Kniff Plus"
+    preise: dict = Field(default_factory=dict)  # {"monat": Rappen, "jahr": Rappen}
+    trial_tasks: int = 0
+    trial_used: int = 0
+    trial_left: int = 0
+    monat_verbraucht: int = 0  # Tokens diesen Monat (Fair-Use-Zaehler)
+    plus_limit: int = 0
+    abo_bis: str | None = None
+    abo_gekuendigt: bool = False
+    abo_intervall: str | None = None
 
 
 # ---------- Parent ----------
@@ -358,6 +377,9 @@ class ParentChildSummary(BaseModel):
     shared: bool  # Schueler hat Freigabe erteilt?
     # letzte Wochen (aktuelle zuerst) fuer den Verlaufs-Chart
     history: list[ParentWeek] = []
+    # Kniff Plus: Eltern sehen die Stufe ihres Kindes und schliessen das Abo ab
+    student_id: int | None = None
+    plus: dict = Field(default_factory=dict)  # quota_state des Kindes
 
 
 # ---------- Aufgaben-Bibliothek ----------

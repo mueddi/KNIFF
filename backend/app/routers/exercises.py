@@ -68,9 +68,8 @@ async def ocr_upload(request: Request, file: UploadFile = File(...),
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(i18n.lang_of(user), "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, i18n.lang_of(user))
     if file.content_type not in ALLOWED_IMG:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, i18n.t(i18n.lang_of(user), "Bitte ein Bild hochladen (PNG/JPG/WebP).", "Please upload an image (PNG/JPG/WebP)."))
     # Groesse VOR dem Einlesen aus dem Header pruefen (kein RAM-DoS durch Riesen-Body).
@@ -126,9 +125,10 @@ async def ocr_upload(request: Request, file: UploadFile = File(...),
     last = getattr(provider, "last_usage", None)
     if last:
         charged = 0
-        if not quota.is_unlimited(user):
+        kstufe = quota.stufe(db, user)
+        if kstufe != "school":
             charged = usage.charged_tokens(usage.cost_usd(last["model"], last["usage"]))
-            quota.charge(db, user.id, charged)
+            quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
         usage.record(db, "ocr", last["model"], last["usage"], user_id=user.id, charged=charged)
     db.commit()
     result.image_path = f"/api/exercises/images/{token}"
@@ -210,9 +210,10 @@ def _generate_task_text(db: Session, user: User, topic_name: str | None) -> str:
     )
     text = "".join(b.text for b in resp.content if b.type == "text").strip()
     charged = 0
-    if not quota.is_unlimited(user):
+    kstufe = quota.stufe(db, user)
+    if kstufe != "school":
         charged = usage.charged_tokens(usage.cost_usd(settings.anthropic_model_default, resp.usage))
-        quota.charge(db, user.id, charged)
+        quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
     usage.record(db, "generiert", settings.anthropic_model_default, resp.usage,
                  user_id=user.id, charged=charged)
     if not text or len(text) > 1000:
@@ -227,9 +228,8 @@ def create_exercise(payload: ExerciseCreate, user: User = Depends(require_studen
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(i18n.lang_of(user), "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, i18n.lang_of(user))
     if payload.topic_id is not None:
         topic = db.get(Topic, payload.topic_id)
         if topic is None or topic.user_id != user.id:
@@ -433,6 +433,10 @@ def start_attempt(exercise_id: int, user: User = Depends(require_student), db: S
     ex = db.get(Exercise, exercise_id)
     if ex is None or ex.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, i18n.t(i18n.lang_of(user), "Aufgabe nicht gefunden", "Task not found"))
+    # Mit Kniff Plus zaehlt die Probe AUFGABEN: die Sperre greift beim Beginn
+    # einer neuen Aufgabe, nicht erst bei der ersten Antwort.
+    if settings.abo_enabled and not quota.can_use_ki(db, user, ex.id):
+        raise quota.sperre(db, user, i18n.lang_of(user), ex.id)
     return _start_attempt_state(db, ex, user)
 
 
@@ -446,9 +450,8 @@ def create_variant(exercise_id: int, user: User = Depends(require_student), db: 
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(i18n.lang_of(user), "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, i18n.lang_of(user))
     if not settings.anthropic_api_key:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
                             i18n.t(i18n.lang_of(user), "Varianten brauchen die KI – sie ist gerade nicht konfiguriert.", "Variants need the AI – it is not configured right now."))
@@ -492,9 +495,10 @@ def create_variant(exercise_id: int, user: User = Depends(require_student), db: 
     db.flush()
     # Verrechnung wie jede KI-Leistung (nach echten Kosten, min. 1 Token)
     charged = 0
-    if not quota.is_unlimited(user):
+    kstufe = quota.stufe(db, user)
+    if kstufe != "school":
         charged = usage.charged_tokens(usage.cost_usd(settings.anthropic_model_default, resp.usage))
-        quota.charge(db, user.id, charged)
+        quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
     usage.record(db, "variante", settings.anthropic_model_default, resp.usage,
                  user_id=user.id, exercise_id=new_ex.id, charged=charged)
     return _start_attempt_state(db, new_ex, user)
@@ -508,9 +512,8 @@ def generate_exercise(payload: dict | None = None,
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(i18n.lang_of(user), "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, i18n.lang_of(user))
     topic_id = (payload or {}).get("topic_id")
     topic_name = None
     if topic_id is not None:

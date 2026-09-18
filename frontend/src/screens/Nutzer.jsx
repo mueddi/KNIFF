@@ -109,6 +109,7 @@ function UserCard({ u, onChanged }) {
           <div style={{ fontSize: 11, color: "#9aa0ab" }}>
             {u.role === "parent" ? t("Elternteil", "Parent") : t("Schüler:in", "Student")} · {u.email_verified ? t("E-Mail bestätigt", "email verified") : t("unbestätigt", "unverified")}
             {u.erstellt ? ` · ${t("seit", "since")} ${new Date(u.erstellt).toLocaleDateString("de-CH")}` : ""}
+            {u.stufe ? ` · ${u.stufe}${u.abo_bis ? ` ${t("bis", "until")} ${new Date(u.abo_bis).toLocaleDateString("de-CH")}${u.abo_gekuendigt ? ` (${t("gekündigt", "cancelled")})` : ""}` : ""}` : ""}
           </div>
         </div>
         <div style={{ display: "flex", gap: 18, fontSize: 12.5, color: "#6b7280" }}>

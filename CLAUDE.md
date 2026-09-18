@@ -82,7 +82,7 @@ Fehlen die Abhängigkeiten im Container: `uv venv /tmp/kniff-venv` und
 | Aufgaben-Bibliothek (Aufgaben, nicht PDFs; Start im Tutor, KI-Vorschau) | `backend/app/routers/library.py`, `frontend/src/screens/Bibliothek.jsx` |
 | Störungen mit Einordnung «handeln / prüfen / keine» | `backend/app/services/stoerungen.py` |
 | App-Dialoge (nie `window.confirm`!) | `frontend/src/lib/dialog.jsx` |
-| Preise, Kontingent | `backend/app/config.py` |
+| Preise, Kontingent (Kniff Plus, Probe, Fair-Use) | `backend/app/config.py`, `backend/app/services/quota.py`, `backend/app/routers/pay.py` |
 | Farben, Schriften | `frontend/src/styles/theme.css` |
 | Serverless-Einstieg (Vercel) | `api/index.py` |
 
@@ -131,6 +131,21 @@ https://claude.ai/code/artifact/67bdea5a-096e-439f-83f6-067727e5424b
   eine Minute, bis die Vorschau eine Datenbank hat.
 * **Die Zahlung wurde nie durchgeführt:** im Live-Stripe-Konto stehen
   0 Checkout-Sitzungen. Vor dem Start einmal echt kaufen und nachzählen.
+* **Kniff Plus (neues Preismodell, Zweig `kniff-plus`, 9.9.):** Abo 9.90/Monat
+  oder 89.–/Jahr pro Kind statt Token-Pakete, 10 Probe-Aufgaben einmalig statt
+  50 Gratis-Tokens im Monat, Eltern schliessen aus der Elternansicht ab.
+  Liegt komplett hinter `ABO_ENABLED` (Standard aus): der Merge ändert nichts.
+  Reihenfolge zum Einschalten: (1) Vercel, Umgebung *Preview*:
+  `STRIPE_SECRET_KEY` (Test-Schlüssel), `STRIPE_WEBHOOK_SECRET` (eigener
+  Test-Endpunkt auf die Vorschau-Adresse, mit `?x-vercel-protection-bypass=…`,
+  weil die Vorschau hinter dem Login liegt) und `ABO_ENABLED=true`; dort mit
+  Testkarte kaufen, kündigen, zurücknehmen, Verlängerung mit der
+  Stripe-Testuhr. (2) Im Live-Webhook die Ereignisse `invoice.paid`,
+  `customer.subscription.updated`, `customer.subscription.deleted` ergänzen.
+  (3) `ABO_ENABLED=true` ins `RUNTIME_ENV_JSON`, Deploy. (4) Startseite und
+  AGB auf das Abo umschreiben (eigener Zweig – die Startseite kennt den
+  Schalter nicht). Vercel Hobby ist für Abo-Einnahmen nicht zulässig – vor
+  dem ersten Verkauf auf Pro wechseln.
 * **Impressum ohne Postadresse** (`frontend/src/screens/Rechtliches.jsx`) –
   nur Name und E-Mail. Für ein kommerzielles Schweizer Angebot zu wenig.
 

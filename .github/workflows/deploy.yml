@@ -183,6 +183,7 @@ jobs:
           import json
           d = json.load(open('/tmp/quota.json'))
           assert 'monthly_free_tokens' in d and 'token_balance' in d and 'remaining' in d, d
+          assert 'stufe' in d, d
           "
       - name: Foto-Erkennung liest eine gedruckte Aufgabe (Live-E2E)
         run: |
@@ -217,7 +218,7 @@ jobs:
           print("Erkennung ok:", d["text"])
           EOF
 
-      - name: Zahlung antwortet sauber (503 ohne Keys / 200 mit)
+      - name: Zahlung antwortet sauber (503 ohne Keys oder Abo-Schalter / 200 mit)
         run: |
           token=$(curl -sS -X POST "https://schrittweise-2-0.vercel.app/api/auth/login" \
             -H "Content-Type: application/json" \
@@ -226,6 +227,7 @@ jobs:
           code=$(curl -sS -o /tmp/pay.json -w "%{http_code}" -X POST \
             "https://schrittweise-2-0.vercel.app/api/pay/checkout" \
             -H "Content-Type: application/json" -H "Authorization: Bearer $token" \
-            -d '{"package":"schnupper"}')
+            -d '{"intervall":"monat"}')
           echo "Checkout: HTTP $code"; cat /tmp/pay.json; echo ""
-          [ "$code" = "503" ] || [ "$code" = "200" ] || exit 1
+          # 409 = das Rauchtest-Konto hat schon ein Abo (nach einem echten Testkauf)
+          [ "$code" = "503" ] || [ "$code" = "200" ] || [ "$code" = "409" ] || exit 1

@@ -17,6 +17,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import i18n
 from ..database import get_db
 from ..deps import require_student
 from ..models import (Exam, ExamItem, ExamStatus, Exercise, Grade, Topic, User)
@@ -80,7 +81,7 @@ def vorschau(topic_id: int, user: User = Depends(require_student),
                             lernziele=0, vorhandene_aufgaben=len(aufgaben),
                             guthaben=stand["remaining"])
     kosten = exam_service.kosten_schaetzung()
-    if not quota.can_use_ki(user):
+    if not quota.can_use_ki(db, user):
         return ExamVorschau(moeglich=False,
                             grund="Dein Guthaben ist aufgebraucht.",
                             lernziele=len(ziele), vorhandene_aufgaben=len(aufgaben),
@@ -100,9 +101,8 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.")
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.")
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, i18n.lang_of(user))
     if not [z for z in (topic.learning_goals or "").splitlines() if z.strip()]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             "Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.")
@@ -134,10 +134,11 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
     # Pruefung entstehen, die niemand bezahlt hat (oder umgekehrt).
     if usage_out.get("usage") is not None:
         charged = 0
-        if not quota.is_unlimited(user):
+        kstufe = quota.stufe(db, user)
+        if kstufe != "school":
             charged = usage.charged_tokens(
                 usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
-            quota.charge(db, user.id, charged)
+            quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
         usage.record(db, "pruefung", usage_out.get("model", ""), usage_out["usage"],
                      user_id=user.id, charged=charged)
     db.commit()

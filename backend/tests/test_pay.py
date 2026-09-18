@@ -55,11 +55,18 @@ def test_checkout_disabled_without_config(client):
     assert r.status_code == 503
 
 
-def test_checkout_rejects_unknown_package(client, monkeypatch):
+def test_checkout_rejects_unknown_interval(client, monkeypatch):
+    enable_payments(monkeypatch)
+    monkeypatch.setattr(settings, "abo_enabled", True)
+    headers = register_pw(client, "mia@test.ch")
+    r = client.post("/api/pay/checkout", headers=headers, json={"intervall": "woche"})
+    assert r.status_code == 400
+
+
+def test_checkout_ohne_abo_schalter_ist_zu(client, monkeypatch):
     enable_payments(monkeypatch)
     headers = register_pw(client, "mia@test.ch")
-    r = client.post("/api/pay/checkout", headers=headers, json={"package": "gratisluxus"})
-    assert r.status_code == 400
+    assert client.post("/api/pay/checkout", headers=headers, json={"intervall": "monat"}).status_code == 503
 
 
 def test_webhook_credits_tokens_idempotently(client, monkeypatch):

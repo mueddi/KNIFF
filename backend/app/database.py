@@ -140,6 +140,13 @@ def _schema_sicherstellen() -> None:
         ("feedback", "image_path", "ALTER TABLE feedback ADD COLUMN image_path VARCHAR(255)"),
         ("feedback", "context", "ALTER TABLE feedback ADD COLUMN context TEXT"),
         ("feedback", "resolved_at", "ALTER TABLE feedback ADD COLUMN resolved_at TIMESTAMP"),
+        # Kniff Plus (Stripe-Abo): alles nullable bzw. mit Default, damit
+        # Bestandskonten unveraendert gueltig bleiben.
+        ("users", "stripe_customer_id", "ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(64)"),
+        ("users", "stripe_subscription_id", "ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR(64)"),
+        ("users", "abo_bis", "ALTER TABLE users ADD COLUMN abo_bis TIMESTAMP"),
+        ("users", "abo_gekuendigt", "ALTER TABLE users ADD COLUMN abo_gekuendigt BOOLEAN DEFAULT FALSE NOT NULL"),
+        ("users", "abo_intervall", "ALTER TABLE users ADD COLUMN abo_intervall VARCHAR(8)"),
     ]
     # Spalten EINMAL pro Tabelle holen statt einmal pro Migrations-Eintrag:
     # 13 Eintraege verteilen sich auf 4 Tabellen.
