@@ -3,10 +3,7 @@
 backend/.venv/
 **/__pycache__/
 *.pyc
-backend/*.db
-backend/schrittweise.db
-# Testlauf von hier aus (statt "cd backend") legt sie im Hauptverzeichnis an
-/test_schrittweise.db
+*.db
 backend/uploads/*
 !backend/uploads/.gitkeep
 
