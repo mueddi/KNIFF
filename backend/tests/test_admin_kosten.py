@@ -2,7 +2,7 @@
 from datetime import datetime, timedelta, timezone
 
 from app.database import SessionLocal
-from app.models import ApiUsage
+from app.models import ApiUsage, Exercise, User
 from app.services.usage import cost_usd, record
 
 from .test_library import make_admin, register_pw
@@ -82,6 +82,11 @@ def test_record_vertraegt_kaputte_eingaben(client):
 
 def _insert_usage(exercise_id, cost, kind="chat", model="claude-haiku-4-5", days_ago=0):
     with SessionLocal() as db:
+        # Fremdschluessel werden auch in SQLite geprueft: die Aufgabe muss es geben.
+        if exercise_id is not None and db.get(Exercise, exercise_id) is None:
+            owner = db.query(User).first()
+            db.add(Exercise(id=exercise_id, user_id=owner.id, text=f"Aufgabe {exercise_id}"))
+            db.flush()
         db.add(ApiUsage(
             kind=kind, model=model, exercise_id=exercise_id,
             input_tokens=100, output_tokens=50,

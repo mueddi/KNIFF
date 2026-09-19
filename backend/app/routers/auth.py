@@ -393,8 +393,9 @@ def delete_account(
                             "Betreiber-Konten können sich nicht selbst löschen.")
 
     from ..models import (
-        ApiUsage, Attempt, Exercise, Feedback, Message, ParentLink, Payment,
-        ProgressAggregate, TokenAdjustment, Topic, UploadedImage,
+        ApiUsage, Attempt, Exam, ExamItem, Exercise, Feedback, Grade, Message,
+        ParentLink, Payment, ProgressAggregate, TokenAdjustment, Topic,
+        UploadedImage,
     )
 
     uid = user.id
@@ -407,6 +408,14 @@ def delete_account(
     db.execute(update(ApiUsage).where(ApiUsage.user_id == uid).values(user_id=None))
     db.execute(update(ApiUsage).where(ApiUsage.exercise_id.in_(exercise_ids)).values(exercise_id=None))
     db.execute(delete(Exercise).where(Exercise.user_id == uid))
+    # Noten und Probepruefungen haengen mit NOT-NULL-Fremdschluesseln an
+    # users/topics/exams – ohne diese Zeilen brach die Loeschung auf Postgres
+    # mit einer Fremdschluessel-Verletzung ab (SQLite prueft das nur mit
+    # eingeschaltetem PRAGMA, siehe tests/conftest.py).
+    exam_ids = select(Exam.id).where(Exam.user_id == uid)
+    db.execute(delete(Grade).where(Grade.user_id == uid))
+    db.execute(delete(ExamItem).where(ExamItem.exam_id.in_(exam_ids)))
+    db.execute(delete(Exam).where(Exam.user_id == uid))
     db.execute(delete(Topic).where(Topic.user_id == uid))
     db.execute(delete(ProgressAggregate).where(ProgressAggregate.user_id == uid))
     db.execute(delete(ParentLink).where(ParentLink.student_id == uid))

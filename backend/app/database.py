@@ -34,6 +34,16 @@ if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
     _engine_kwargs.pop("pool_pre_ping")
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite ignoriert Fremdschluessel, solange man es nicht bittet. In der
+    # Produktion (Postgres) sind sie hart – ohne dieses PRAGMA fielen
+    # Loeschfehler (z.B. Konto mit Noten) erst live auf, nie in den Tests.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_fremdschluessel(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
