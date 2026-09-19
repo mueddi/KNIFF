@@ -183,6 +183,10 @@ class ExerciseCreate(BaseModel):
     image_path: str | None = Field(default=None, max_length=255)
 
 
+class GenerierenRequest(BaseModel):
+    topic_id: int | None = None
+
+
 class ExerciseOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: int
@@ -461,7 +465,7 @@ class ExamItemOut(BaseModel):
 class ExamItemAnswer(BaseModel):
     id: int
     answer: str = ""
-    image_path: str | None = None
+    image_path: str | None = Field(default=None, max_length=255)
 
 
 class ExamSubmit(BaseModel):

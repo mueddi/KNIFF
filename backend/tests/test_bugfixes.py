@@ -57,3 +57,27 @@ def test_thema_loeschen_mit_pruefung(client, monkeypatch):
         assert db.query(Exam).count() == 0 and db.query(ExamItem).count() == 0
         note = db.query(Grade).one()
         assert note.topic_id is None and note.exam_id is None
+
+
+def test_thema_patch_mit_null_leert_keine_pflichtspalte(client):
+    headers = register(client, "mia@test.ch")
+    tid = client.post("/api/topics", headers=headers, json={"name": "Algebra"}).json()["id"]
+    r = client.patch(f"/api/topics/{tid}", headers=headers, json={"name": None, "color": None})
+    assert r.status_code == 200, r.text
+    assert r.json()["name"] == "Algebra"
+
+
+def test_generieren_mit_unsinniger_themen_id_gibt_422(client):
+    headers = register(client, "mia@test.ch")
+    r = client.post("/api/exercises/generieren", headers=headers, json={"topic_id": "abc"})
+    assert r.status_code == 422
+
+
+def test_pruefungs_abgabe_mit_ueberlangem_bildpfad_gibt_422(client, monkeypatch):
+    headers = register(client, "mia@test.ch")
+    tid, exam_id = _pruefung(client, headers, monkeypatch)
+    with SessionLocal() as db:
+        item_id = db.query(ExamItem).filter(ExamItem.exam_id == exam_id).first().id
+    r = client.post(f"/api/exams/{exam_id}/abgeben", headers=headers,
+                    json={"antworten": [{"id": item_id, "answer": "5", "image_path": "/x" * 200}]})
+    assert r.status_code == 422
