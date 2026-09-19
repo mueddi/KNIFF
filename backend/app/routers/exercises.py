@@ -18,7 +18,6 @@ from ..schemas import (
     AttemptStateOut,
     ExerciseCreate,
     ExerciseOut,
-    MessageOut,
     message_out,
     OcrResult,
 )
@@ -87,7 +86,6 @@ async def ocr_upload(request: Request, file: UploadFile = File(...),
     # Magic-Bytes pruefen: nur echte Bilddaten akzeptieren (Content-Type ist client-gesetzt).
     try:
         from PIL import Image
-        import io
 
         Image.open(io.BytesIO(data)).verify()
     except Exception:
