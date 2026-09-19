@@ -119,11 +119,12 @@ Environment Variables**, Umgebung **nur Preview**:
 |---|---|
 | `JWT_SECRET` | irgendein langer Zufallswert; ohne ihn verweigert `_check_production_config()` den Start (`VERCEL` gesetzt ⇒ `is_production`) |
 
-Bewusst **nicht** gesetzt: `DATABASE_URL` – dann fällt `api/index.py:56` auf eine
-leere Wegwerf-Datenbank (SQLite in `/tmp`) zurück und ein Testlauf kann die
-echten Schülerdaten nicht berühren. Ebenso `ANTHROPIC_API_KEY` – ohne Schlüssel
-antwortet der deterministische Mock, was für einen Start-Test genügt und nichts
-kostet.
+Dazu (seit 7.9., siehe `CLAUDE.md`): `DATABASE_URL` auf das eigene
+Supabase-Projekt **kniff-vorschau** – die frühere Wegwerf-Datenbank (SQLite in
+`/tmp`) gehörte jeweils nur einer Serverless-Instanz und warf einen nach dem
+Anmelden sofort wieder raus. Und `ANTHROPIC_API_KEY` mit eigenem Schlüssel,
+damit Testkosten getrennt sichtbar sind. Die Produktionsdaten berührt eine
+Vorschau nie.
 
 Für **Production** in Vercel bewusst **nichts** eintragen: die Werte kommen dort
 weiterhin aus dem Sidecar. (Falls doch einmal nötig – in Vercel gesetzte

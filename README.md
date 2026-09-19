@@ -1,9 +1,11 @@
 # Kniff
 
-**KI-Mathe-Tutor für die Schweizer Oberstufe & das Gymnasium** — Mathe verstehen, nicht abschreiben.
+**KI-Mathe-Tutor für die Schweizer Mittelstufe, Oberstufe und das Gymnasium** — Mathe verstehen, nicht abschreiben.
 
-Kniff ist ein Lern-Tutor für Sek-I-Schüler:innen (Lehrplan 21) und
-Gymnasiast:innen bis zur Matura,
+Live: **https://kniff.app**
+
+Kniff ist ein Lern-Tutor für die Mittelstufe (4.–6. Klasse), die Oberstufe
+(Lehrplan 21) und das Gymnasium bis zur Matura,
 der die Lösung nie direkt verrät. Stattdessen führt eine **Hinweis-Leiter** in vier
 Stufen zum eigenen Denken:
 
@@ -44,7 +46,7 @@ wenn Schüler:innen um die Lösung betteln.
 | Backend | Python + FastAPI |
 | Mathe-Verifikation | SymPy |
 | KI | Anthropic API (Haiku als Standard, Sonnet für komplexe Aufgaben, Prompt-Caching) |
-| Datenbank | SQLite → Postgres/Supabase via SQLAlchemy (nur Config-Wechsel) |
+| Datenbank | Supabase Postgres (lokal SQLite) via SQLAlchemy |
 | Auth | E-Mail + Passwort (scrypt) + JWT; Magic-Link-Flows als Alternative im Code |
 | Deployment | Vercel (Serverless + Static Build), ausgelöst über GitHub Actions nach den Tests |
 
@@ -56,7 +58,7 @@ wenn Schüler:innen um die Lösung betteln.
 - Windows: `start.bat`
 
 Danach läuft die App auf http://localhost:5173. Voraussetzungen:
-[Python 3.11+](https://python.org) und [Node.js 18+](https://nodejs.org).
+[Python 3.11+](https://python.org) (Produktion und CI: 3.14) und [Node.js 18+](https://nodejs.org).
 
 **Manuell:**
 
@@ -83,10 +85,12 @@ vergessen» gibt den Link im Dev-Modus direkt zurück — kein Mailserver nötig
 backend/          FastAPI-App
   app/models.py   Datenmodell (users, topics, exercises, attempts, messages,
                   progress_aggregates, parent_links, magic_links)
-  app/routers/    auth, topics, exercises, attempts, parents, quota
+  app/routers/    auth, topics, exercises, attempts, exams, grades, parents,
+                  quota, library, pay, feedback, admin
   app/services/   SymPy-Verifikation, OCR, Tutor (LLM), Aggregate
 frontend/         React + Vite
-  src/screens/    Landing, Login, Lernen, Themen, Eltern, Preise, Einstellungen
+  src/screens/    Landing, Login, Lernen, Themen, Bibliothek, Eltern, Preise,
+                  Einstellungen, Admin (Kosten, Nutzer, Störungen)
 design/referenz.html   Visueller Massstab
 api/index.py      Vercel-Serverless-Einstieg
 vercel.json       Vercel Build & Routing
