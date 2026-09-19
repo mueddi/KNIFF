@@ -24,7 +24,10 @@ DATABASE_URL = _normalize_url(settings.database_url)
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 else:
-    connect_args = {"options": "-c timezone=utc"}
+    # connect_timeout: ist der Supabase-Pooler nicht erreichbar, soll die
+    # Funktion nach 5 s mit einer klaren 503 antworten statt bis zum
+    # TCP-Timeout zu haengen (Vercel bricht bei 60 s hart ab).
+    connect_args = {"options": "-c timezone=utc", "connect_timeout": 5}
 
 _engine_kwargs: dict = {"connect_args": connect_args, "pool_pre_ping": True}
 if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
