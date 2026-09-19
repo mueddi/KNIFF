@@ -6,23 +6,33 @@ name: Backup (Datenbank)
 #
 # Benoetigte Secrets (Settings -> Secrets and variables -> Actions):
 #   DATABASE_URL     Supabase "Session pooler"-Connection-String
-#   BACKUP_PASSWORD  (optional) verschluesselt das Artefakt zusaetzlich
+#   BACKUP_PASSWORD  verschluesselt das Artefakt (Pflicht: im Dump stehen
+#                    Nutzer, Guthaben und Zahlungen)
 
 on:
   schedule:
     - cron: "0 3 * * 0" # jeden Sonntag 03:00 UTC
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   dump:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
-      - name: Secret prüfen
+      - name: Secrets prüfen
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
         run: |
           if [ -z "$DATABASE_URL" ]; then
             echo "::error::Secret DATABASE_URL fehlt – Supabase Session-Pooler-URL unter Settings → Secrets → Actions anlegen."
+            exit 1
+          fi
+          if [ -z "$BACKUP_PASSWORD" ]; then
+            echo "::error::Secret BACKUP_PASSWORD fehlt – ohne Verschlüsselung läge die Sicherung mit Nutzern und Zahlungen 90 Tage im Klartext für jeden mit Repo-Zugriff. Kein Backup ohne Passwort."
             exit 1
           fi
 
@@ -39,18 +49,14 @@ jobs:
           # Ein leerer Dump waere ein stiller Totalausfall des Backups
           [ "$(stat -c%s schrittweise.dump)" -gt 10000 ] || { echo "::error::Dump verdächtig klein"; exit 1; }
 
-      - name: Verschlüsseln (falls BACKUP_PASSWORD gesetzt)
+      - name: Verschlüsseln
         env:
           BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
         run: |
-          if [ -n "$BACKUP_PASSWORD" ]; then
-            openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSWORD \
-              -in schrittweise.dump -out schrittweise.dump.enc
-            rm schrittweise.dump
-            echo "Backup verschlüsselt."
-          else
-            echo "Kein BACKUP_PASSWORD gesetzt – Artefakt bleibt unverschlüsselt (Repo-Zugriff genügt zum Download)."
-          fi
+          openssl enc -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSWORD \
+            -in schrittweise.dump -out schrittweise.dump.enc
+          rm schrittweise.dump
+          echo "Backup verschlüsselt."
 
       - name: Als Artefakt ablegen (90 Tage)
         uses: actions/upload-artifact@v4
