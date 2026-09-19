@@ -118,9 +118,13 @@ def register_password(payload: PasswordRegisterRequest, request: Request, db: Se
     email = payload.email.lower().strip()
     user = db.scalar(select(User).where(User.email == email))
 
-    if user is not None and user.password_hash:
+    # Auch ein Konto OHNE Passwort (Magic-Link-Zeit) gehoert schon jemandem:
+    # wer nur die E-Mail kennt, darf nicht per «Registrieren» ein Passwort
+    # setzen und dessen Aufgaben, Chats und Noten lesen. Der Weg hinein ist
+    # «Passwort vergessen» - dort beweist der Mail-Link den Besitz.
+    if user is not None:
         raise HTTPException(
-            status.HTTP_409_CONFLICT, i18n.t(i18n.lang_of(request=request), "Konto existiert bereits – wechsle zu «Anmelden».", "Account already exists – switch to “Sign in”.")
+            status.HTTP_409_CONFLICT, i18n.t(i18n.lang_of(request=request), "Konto existiert bereits – wechsle zu «Anmelden» oder «Passwort vergessen».", "Account already exists – switch to “Sign in” or “Forgot password”.")
         )
 
     if user is None:
@@ -135,7 +139,6 @@ def register_password(payload: PasswordRegisterRequest, request: Request, db: Se
         )
         db.add(user)
 
-    # Passwortloses Alt-Konto (Magic-Link-Zeit, nie eingeloggt): Passwort setzen erlaubt.
     user.password_hash = hash_password(payload.password)
     user.terms_accepted_at = datetime.now(timezone.utc)
     user.email_verified = False  # Besitz-Nachweis erst per Link-Klick
