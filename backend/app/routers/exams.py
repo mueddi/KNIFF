@@ -11,12 +11,14 @@ Drei Regeln, die diesen Weg vom Chat unterscheiden:
 * **Korrigiert wird mit SymPy.** Erst wenn kein Prüfausdruck vorliegt, muss
   überhaupt ein Modell ran – siehe ``services/exam.py``.
 """
+import logging
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from .. import i18n
 from ..database import get_db
 from ..deps import require_student
 from ..models import (Exam, ExamItem, ExamStatus, Exercise, Grade, Topic, User)
@@ -31,14 +33,16 @@ router = APIRouter(prefix="/api", tags=["exams"])
 def _eigenes_thema(db: Session, topic_id: int, user: User) -> Topic:
     topic = db.get(Topic, topic_id)
     if topic is None or topic.user_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Thema nicht gefunden")
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            i18n.t(i18n.lang_of(user), "Thema nicht gefunden", "Topic not found"))
     return topic
 
 
 def _eigene_pruefung(db: Session, exam_id: int, user: User) -> Exam:
     ex = db.get(Exam, exam_id)
     if ex is None or ex.user_id != user.id:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Prüfung nicht gefunden")
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            i18n.t(i18n.lang_of(user), "Prüfung nicht gefunden", "Exam not found"))
     return ex
 
 
@@ -76,13 +80,13 @@ def vorschau(topic_id: int, user: User = Depends(require_student),
 
     if not ziele:
         return ExamVorschau(moeglich=False,
-                            grund="Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.",
+                            grund=i18n.t(i18n.lang_of(user), "Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.", "Add learning goals to the topic first – the exam is built from them."),
                             lernziele=0, vorhandene_aufgaben=len(aufgaben),
                             guthaben=stand["remaining"])
     kosten = exam_service.kosten_schaetzung()
     if not quota.can_use_ki(user):
         return ExamVorschau(moeglich=False,
-                            grund="Dein Guthaben ist aufgebraucht.",
+                            grund=i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht.", "Your balance is used up."),
                             lernziele=len(ziele), vorhandene_aufgaben=len(aufgaben),
                             kosten_rappen=kosten, guthaben=stand["remaining"])
     return ExamVorschau(moeglich=True, lernziele=len(ziele),
@@ -97,15 +101,16 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
 
     # Gates VOR dem Modellaufruf – wie im Chat. Sonst entstuenden Kosten fuer
     # eine Pruefung, die gar nicht ausgeliefert werden darf.
+    lang = i18n.lang_of(user)
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
-                            "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.")
+                            i18n.t(lang, "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
     if not quota.can_use_ki(user):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.")
+                            i18n.t(lang, "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
     if not [z for z in (topic.learning_goals or "").splitlines() if z.strip()]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
-                            "Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.")
+                            i18n.t(lang, "Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.", "Add learning goals to the topic first – the exam is built from them."))
 
     usage_out: dict = {}
     try:
@@ -119,8 +124,8 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
         alert.notify("ki", f"Probepruefung fehlgeschlagen: {type(exc).__name__}: {exc}",
                      key="pruefung")
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
-                            "Die Prüfung konnte gerade nicht erstellt werden. "
-                            "Versuch es in einem Moment nochmal – es wurde nichts abgebucht.")
+                            i18n.t(lang, "Die Prüfung konnte gerade nicht erstellt werden. Versuch es in einem Moment nochmal – es wurde nichts abgebucht.",
+                                   "The exam could not be created right now. Try again in a moment – nothing was charged."))
 
     ex = Exam(user_id=user.id, topic_id=topic.id, status=ExamStatus.offen,
               model=usage_out.get("model", ""), learning_goals=topic.learning_goals)
@@ -179,7 +184,8 @@ def pruefung_abgeben(exam_id: int, payload: ExamSubmit,
     """
     ex = _eigene_pruefung(db, exam_id, user)
     if ex.status == ExamStatus.bewertet:
-        raise HTTPException(status.HTTP_409_CONFLICT, "Diese Prüfung ist schon abgegeben.")
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            i18n.t(i18n.lang_of(user), "Diese Prüfung ist schon abgegeben.", "This exam has already been submitted."))
 
     nach_id = {i.id: i for i in ex.items}
     for antwort in payload.antworten:
@@ -195,7 +201,14 @@ def pruefung_abgeben(exam_id: int, payload: ExamSubmit,
             item.verdict = "leer"
             item.judged_by = ""
         elif item.math_expression:
-            item.verdict = verify(item.math_expression, item.student_answer).status
+            # Eine Ausnahme in der Nachrechnung darf nicht die ganze Abgabe
+            # verwerfen (Antworten waeren weg, Pruefung bliebe «offen»).
+            try:
+                item.verdict = verify(item.math_expression, item.student_answer).status
+            except Exception:
+                logging.getLogger("schrittweise.exams").exception(
+                    "Nachrechnung fehlgeschlagen (Item %s)", item.id)
+                item.verdict = "unknown"
             item.judged_by = "sympy"
         else:
             # Nicht maschinell pruefbar (zeichnen, begruenden): nicht bewerten.
@@ -229,7 +242,8 @@ def als_uebungsaufgabe(exam_id: int, item_id: int,
     ex = _eigene_pruefung(db, exam_id, user)
     item = next((i for i in ex.items if i.id == item_id), None)
     if item is None:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Aufgabe nicht gefunden")
+        raise HTTPException(status.HTTP_404_NOT_FOUND,
+                            i18n.t(i18n.lang_of(user), "Aufgabe nicht gefunden", "Task not found"))
     aufgabe = Exercise(user_id=user.id, topic_id=ex.topic_id, text=item.question,
                        math_expression=item.math_expression or None)
     db.add(aufgabe)
