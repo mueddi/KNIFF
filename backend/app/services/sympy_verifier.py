@@ -7,7 +7,7 @@ und liefert (intern!) die Lösung, die erst auf Stufe 4 verraten werden darf.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from functools import lru_cache
 
 

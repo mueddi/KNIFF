@@ -2,12 +2,12 @@
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
 from ..database import get_db
 from ..deps import require_student
-from ..models import Attempt, Exercise, Grade, Topic, User
+from ..models import Attempt, Exam, ExamItem, Exercise, Grade, Topic, User
 from ..schemas import ExerciseListItem, TopicCreate, TopicOut, TopicUpdate
 
 router = APIRouter(prefix="/api/topics", tags=["topics"])
@@ -72,7 +72,9 @@ def update_topic(topic_id: int, payload: TopicUpdate, user: User = Depends(requi
     topic = db.get(Topic, topic_id)
     if topic is None or topic.user_id != user.id:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Thema nicht gefunden")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    # exclude_none: ein mitgeschicktes null darf keine NOT-NULL-Spalte leeren
+    # (sonst IntegrityError -> 500), genau wie beim Profil in auth.py.
+    for field, value in payload.model_dump(exclude_unset=True, exclude_none=True).items():
         setattr(topic, field, value)
     db.commit()
     db.refresh(topic)
@@ -160,5 +162,11 @@ def delete_topic(topic_id: int, trotzdem: bool = Query(default=False),
     # Noten ebenfalls NICHT loeschen: die Note gehoert dem Kind, nicht dem Thema
     for note in noten:
         note.topic_id = None
+    # Probepruefungen haengen fest am Thema (NOT NULL) – sie gehen mit; ihre
+    # Note ist oben schon vom Thema geloest und bleibt im Verlauf.
+    exam_ids = select(Exam.id).where(Exam.topic_id == topic.id)
+    db.execute(update(Grade).where(Grade.exam_id.in_(exam_ids)).values(exam_id=None))
+    db.execute(delete(ExamItem).where(ExamItem.exam_id.in_(exam_ids)))
+    db.execute(delete(Exam).where(Exam.topic_id == topic.id))
     db.delete(topic)
     db.commit()

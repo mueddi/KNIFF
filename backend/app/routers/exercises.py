@@ -13,11 +13,11 @@ from .. import i18n
 from ..deps import require_student
 from ..models import Attempt, Exercise, Message, MessageRole, Topic, UploadedImage, User
 from ..schemas import (
+    GenerierenRequest,
     AttemptOut,
     AttemptStateOut,
     ExerciseCreate,
     ExerciseOut,
-    MessageOut,
     message_out,
     OcrResult,
 )
@@ -86,7 +86,6 @@ async def ocr_upload(request: Request, file: UploadFile = File(...),
     # Magic-Bytes pruefen: nur echte Bilddaten akzeptieren (Content-Type ist client-gesetzt).
     try:
         from PIL import Image
-        import io
 
         Image.open(io.BytesIO(data)).verify()
     except Exception:
@@ -501,7 +500,7 @@ def create_variant(exercise_id: int, user: User = Depends(require_student), db: 
 
 
 @router.post("/generieren", response_model=AttemptStateOut, status_code=201)
-def generate_exercise(payload: dict | None = None,
+def generate_exercise(payload: GenerierenRequest | None = None,
                       user: User = Depends(require_student), db: Session = Depends(get_db)):
     """«Keine Aufgabe zur Hand»: KI erzeugt eine passende Aufgabe (Stufe/
     Thema/Sprache) und startet sie direkt."""
@@ -511,10 +510,10 @@ def generate_exercise(payload: dict | None = None,
     if not quota.can_use_ki(user):
         raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
                             i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
-    topic_id = (payload or {}).get("topic_id")
+    topic_id = payload.topic_id if payload else None
     topic_name = None
     if topic_id is not None:
-        topic = db.get(Topic, int(topic_id))
+        topic = db.get(Topic, topic_id)
         if topic is None or topic.user_id != user.id:
             raise HTTPException(status.HTTP_404_NOT_FOUND, i18n.t(i18n.lang_of(user), "Thema nicht gefunden", "Topic not found"))
         topic_name = topic.name
@@ -526,7 +525,7 @@ def generate_exercise(payload: dict | None = None,
                             i18n.t(i18n.lang_of(user), "Konnte gerade keine Aufgabe erzeugen – versuch es gleich nochmal.", "Couldn't create a task right now – please try again in a moment."))
     ex = Exercise(user_id=user.id, text=text,
                   math_expression=extract_expression(text),
-                  topic_id=int(topic_id) if topic_id is not None else None)
+                  topic_id=topic_id)
     db.add(ex)
     db.flush()
     return _start_attempt_state(db, ex, user)

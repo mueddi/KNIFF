@@ -11,16 +11,16 @@ Zwei Arten:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import i18n
 from ..database import get_db
 from ..deps import get_current_user, require_admin
-from ..models import Attempt, Exercise, Feedback, Message, MessageRole, User
+from ..models import Alert, Attempt, Exercise, Feedback, Message, MessageRole, User
 from ..schemas import FeedbackCreate, FeedbackOut
 
 log = logging.getLogger("schrittweise.feedback")
@@ -119,19 +119,33 @@ def _harmlos(message: str) -> bool:
     return any(m in low for m in _HARMLOS)
 
 
+# Hoechstens so viele Browser-Fehler pro Konto und Stunde landen im Alarm:
+# die Drossel in alert.notify greift pro Meldungstext, ein variierender Text
+# koennte sie aushebeln und Datenbank wie Betreiber-Postfach fluten.
+CLIENT_FEHLER_MAX_PRO_STUNDE = 5
+
+
 @router.post("/app-fehler", status_code=201)
-def report_client_error(payload: dict, user: User = Depends(get_current_user)):
+def report_client_error(payload: dict, user: User = Depends(get_current_user),
+                        db: Session = Depends(get_db)):
     """Browser-Fehler (JS-Crash) als Stoerung im Admin sichtbar machen.
 
-    Bewusst schlank: nur Meldung + Seite, hart gekappt; die Drosselung in
-    alert.notify (pro Meldungs-Schluessel) verhindert Fluten.
+    Bewusst schlank: nur Meldung + Seite, hart gekappt; gedrosselt pro
+    Meldungstext (alert.notify) UND pro Konto (siehe oben).
     """
     from ..services import alert
 
     message = str((payload or {}).get("message") or "")[:300].strip()
     url = str((payload or {}).get("url") or "")[:300].strip()
-    if message and not _harmlos(message):
-        alert.notify("client", f"{url} – {message}", key=message[:80])
+    if not message or _harmlos(message):
+        return {"ok": True}
+    marke = f"[u{user.id}] "
+    seit = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+    bisher = db.scalar(select(func.count(Alert.id)).where(
+        Alert.kind == "client", Alert.created_at >= seit, Alert.detail.like(marke + "%"))) or 0
+    if bisher >= CLIENT_FEHLER_MAX_PRO_STUNDE:
+        return {"ok": True}
+    alert.notify("client", f"{marke}{url} – {message}", key=message[:80])
     return {"ok": True}
 
 
