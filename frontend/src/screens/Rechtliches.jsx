@@ -1,4 +1,6 @@
 import { Link, useLocation } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { api } from "../lib/api.js";
 import { useLang } from "../lib/i18n.jsx";
 
 // Impressum & Datenschutzerklärung – öffentlich erreichbar, im Design-Look.
@@ -95,7 +97,7 @@ export function Datenschutz() {
           <P>
             This privacy policy explains which personal data Kniff processes – in
             accordance with the Swiss Federal Act on Data Protection (revFADP). Last
-            updated: July 2026.
+            updated: September 2026.
           </P>
 
           <H>1. Controller</H>
@@ -113,8 +115,9 @@ export function Datenschutz() {
             with the pen, and the chat history with the tutor.<br />
             <b>Learning progress:</b> coarse aggregates computed from this (tasks
             solved, independence rate, active days, topic trends).<br />
-            <b>Purchases:</b> for a token purchase, the amount and the time the tokens
-            were credited (no payment data, see section 7).
+            <b>Purchases and subscription:</b> amount and time of a purchase, the term
+            of a subscription and the customer and subscription identifiers assigned by
+            the payment provider (no payment data, see section 7).
           </P>
 
           <H>3. Purpose</H>
@@ -152,10 +155,11 @@ export function Datenschutz() {
 
           <H>7. Payment processing</H>
           <P>
-            Token purchases are processed via Stripe Payments Europe Ltd. Card or TWINT
-            data are processed directly by Stripe and never reach our servers; we only
-            store the amount and the time the tokens were credited. Minors need the
-            consent of their legal guardians for purchases.
+            Purchases and subscriptions are processed via Stripe Payments Europe Ltd.
+            Card or TWINT data are processed directly by Stripe and never reach our
+            servers; we only store the amount, the time of the purchase, the term of a
+            subscription and the identifiers assigned by Stripe. Minors need the consent
+            of their legal guardians for purchases.
           </P>
 
           <H>8. Retention &amp; deletion</H>
@@ -185,7 +189,7 @@ export function Datenschutz() {
         <>
           <P>
             Diese Datenschutzerklärung informiert darüber, welche Personendaten Kniff
-            bearbeitet – gemäss dem Schweizer Datenschutzgesetz (revDSG). Stand: Juli 2026.
+            bearbeitet – gemäss dem Schweizer Datenschutzgesetz (revDSG). Stand: September 2026.
           </P>
 
           <H>1. Verantwortliche Stelle</H>
@@ -203,7 +207,8 @@ export function Datenschutz() {
             Aufgaben und der Chat-Verlauf mit dem Tutor.<br />
             <b>Lernfortschritt:</b> daraus berechnete grobe Aggregate (gelöste Aufgaben,
             Selbständigkeits-Quote, aktive Tage, Themen-Trends).<br />
-            <b>Käufe:</b> bei einem Token-Kauf den Betrag und den Zeitpunkt der Gutschrift
+            <b>Käufe und Abo:</b> Betrag und Zeitpunkt eines Kaufs, die Laufzeit eines
+            Abos sowie die vom Zahlungsanbieter vergebenen Kunden- und Abo-Kennungen
             (keine Zahlungsdaten, siehe Ziffer 7).
           </P>
 
@@ -241,9 +246,10 @@ export function Datenschutz() {
 
           <H>7. Zahlungsabwicklung</H>
           <P>
-            Token-Käufe werden über Stripe Payments Europe Ltd. abgewickelt. Karten- oder
-            TWINT-Daten werden direkt von Stripe verarbeitet und erreichen unsere Server
-            nie; wir speichern nur den Betrag und den Zeitpunkt der Gutschrift.
+            Käufe und Abos werden über Stripe Payments Europe Ltd. abgewickelt. Karten-
+            oder TWINT-Daten werden direkt von Stripe verarbeitet und erreichen unsere
+            Server nie; wir speichern nur Betrag, Zeitpunkt, Laufzeit eines Abos und die
+            von Stripe vergebenen Kennungen.
             Minderjährige benötigen für Käufe das Einverständnis ihrer
             Erziehungsberechtigten.
           </P>
@@ -278,6 +284,17 @@ export function Datenschutz() {
 
 export function Agb() {
   const { t, lang } = useLang();
+  // Welches Modell gilt, sagt der Server (ABO_ENABLED): mit Schalter Kniff
+  // Plus, ohne ihn die Token-Pakete. Bis die Auskunft da ist, gilt Kniff Plus.
+  const [preise, setPreise] = useState(null);
+  useEffect(() => {
+    api.get("/api/pay/preise").then(setPreise).catch(() => setPreise(null));
+  }, []);
+  const abo = preise ? preise.abo_enabled : true;
+  const plusName = preise?.plus_name || "Kniff Plus";
+  const probe = preise?.trial_tasks ?? 10;
+  const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
+  const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
   return (
     <Shell title={t("AGB", "Terms of Use")}>
       {lang === "en" ? (
@@ -287,9 +304,45 @@ export function Agb() {
             General terms and conditions (contract of use) for Kniff, operated by
             Mahmmoud Said, St. Georgen-Strasse 84, 9000 St.Gallen, Switzerland
             (<Mail />).
-            Last updated: July 2026.
+            Last updated: September 2026.
           </P>
 
+          {abo ? (
+            <>
+              <H>1. Service</H>
+              <P>
+                Kniff is an AI-powered maths tutor for middle school, secondary school
+                and high school (Gymnasium). Every account can practise its first {probe}{" "}
+                tasks free of charge (trial, once per account, no payment details).
+                After that, {plusName} is required: one subscription per child that
+                allows practising as much as the child wants – photo, pen, task
+                collection and mock exams included. Fair use: with exceptionally heavy
+                use far beyond everyday learning, the account may pause until the start
+                of the next month. Token balances bought earlier remain usable after the
+                trial and are deducted as before.
+              </P>
+
+              <H>2. Prices</H>
+              <P>
+                {plusName}: CHF {monat} per month or CHF {jahr}.– per year, per child.
+                All prices in Swiss francs; no VAT is charged. School and class plans on
+                request. Price changes are announced by e-mail at least 30 days in
+                advance and apply from the next renewal; until then the subscription can
+                be cancelled.
+              </P>
+
+              <H>3. Payment and term</H>
+              <P>
+                Payment is processed via Stripe (card or TWINT). The subscription renews
+                automatically for the chosen term (month or year) until it is cancelled.
+                It can be cancelled at any time in the app (Settings → Subscription) with
+                effect from the end of the paid term; until then {plusName} remains
+                active. Parents can take out the subscription for a linked child; the
+                invoice goes to the parent's e-mail address.
+              </P>
+            </>
+          ) : (
+            <>
           <H>1. Service</H>
           <P>
             Kniff is an AI-powered maths tutor for middle school, secondary school
@@ -314,6 +367,8 @@ export function Agb() {
             Payment is processed via Stripe (card or TWINT). Tokens are credited to the
             account automatically after receipt of payment – usually within seconds.
           </P>
+            </>
+          )}
 
           <H>4. Minors</H>
           <P>
@@ -322,18 +377,29 @@ export function Agb() {
           </P>
 
           <H>5. Refunds</H>
-          <P>
-            Unused tokens can be returned within 14 days of purchase by e-mail to the
-            address above (pro-rata refund). For tokens already used, the service has
-            been provided – no refund is given for those.
-          </P>
+          {abo ? (
+            <P>
+              Within 14 days of the first subscription, the full amount is refunded on
+              request by e-mail to the address above. After that, cancelling does not
+              refund the remainder of the paid term; {plusName} simply stays active until
+              the end of that term. Token balances bought earlier: unused tokens can be
+              returned within 14 days of purchase (pro-rata refund); for tokens already
+              used, the service has been provided.
+            </P>
+          ) : (
+            <P>
+              Unused tokens can be returned within 14 days of purchase by e-mail to the
+              address above (pro-rata refund). For tokens already used, the service has
+              been provided – no refund is given for those.
+            </P>
+          )}
 
           <H>6. Availability and warranty</H>
           <P>
             Kniff is a learning tool and does not replace classroom teaching.
             AI-generated hints may occasionally be incorrect; no warranty is given for
             them. Uninterrupted availability is aimed for but not guaranteed. In the
-            event of longer outages, affected tokens will be replaced on request.
+            event of longer outages, {abo ? "the subscription term is extended on request" : "affected tokens will be replaced on request"}.
           </P>
 
           <H>7. Account and misuse</H>
@@ -354,9 +420,45 @@ export function Agb() {
             Allgemeine Geschäftsbedingungen für die Nutzung von Kniff, betrieben von
             Mahmmoud Said, St. Georgen-Strasse 84, 9000 St.Gallen, Schweiz
             (<Mail />).
-            Stand: Juli 2026.
+            Stand: September 2026.
           </P>
 
+          {abo ? (
+            <>
+              <H>1. Leistung</H>
+              <P>
+                Kniff ist ein KI-gestützter Mathe-Lern-Tutor für Mittelstufe, Oberstufe
+                und Gymnasium. Jedes Konto kann die ersten {probe} Aufgaben gratis üben
+                (Probe, einmalig pro Konto, ohne Zahlungsangaben). Danach braucht es{" "}
+                {plusName}: ein Abo pro Kind, mit dem so viel geübt werden kann, wie das
+                Kind will – Foto, Stift, Aufgabensammlung und Probeprüfungen inbegriffen.
+                Fair Use: Bei aussergewöhnlich hoher Nutzung weit über einem normalen
+                Lernalltag kann das Konto bis zum Monatsanfang pausieren. Früher gekaufte
+                Token-Guthaben bleiben nach der Probe nutzbar und werden wie bisher
+                abgebucht.
+              </P>
+
+              <H>2. Preise</H>
+              <P>
+                {plusName}: CHF {monat} pro Monat oder CHF {jahr}.– pro Jahr, jeweils pro
+                Kind. Alle Preise in Schweizer Franken; es wird keine Mehrwertsteuer
+                erhoben. Schul- und Klassenpläne auf Anfrage. Preisänderungen werden
+                mindestens 30 Tage im Voraus per E-Mail angekündigt und gelten ab der
+                nächsten Verlängerung; bis dahin kann gekündigt werden.
+              </P>
+
+              <H>3. Zahlung und Laufzeit</H>
+              <P>
+                Die Zahlung erfolgt über Stripe (Karte oder TWINT). Das Abo verlängert
+                sich automatisch um die gewählte Laufzeit (Monat oder Jahr), bis es
+                gekündigt wird. Kündigen geht jederzeit in der App (Einstellungen → Abo)
+                mit Wirkung auf das Ende der bezahlten Laufzeit; bis dahin bleibt{" "}
+                {plusName} aktiv. Eltern können das Abo für ein verknüpftes Kind
+                abschliessen; die Rechnung geht an die E-Mail-Adresse der Eltern.
+              </P>
+            </>
+          ) : (
+            <>
           <H>1. Leistung</H>
           <P>
             Kniff ist ein KI-gestützter Mathe-Lern-Tutor für Mittelstufe, Oberstufe
@@ -382,6 +484,8 @@ export function Agb() {
             Zahlungseingang automatisch dem Konto gutgeschrieben – in der Regel innert
             Sekunden.
           </P>
+            </>
+          )}
 
           <H>4. Minderjährige</H>
           <P>
@@ -390,18 +494,29 @@ export function Agb() {
           </P>
 
           <H>5. Rückerstattung</H>
-          <P>
-            Ungenutzte Tokens können innert 14 Tagen nach dem Kauf per E-Mail an die oben
-            genannte Adresse zurückgegeben werden (anteilige Rückerstattung). Für bereits
-            verbrauchte Tokens ist die Leistung erbracht – dafür gibt es keine Rückerstattung.
-          </P>
+          {abo ? (
+            <P>
+              Innert 14 Tagen nach dem ersten Abschluss erstatten wir auf Anfrage per
+              E-Mail an die oben genannte Adresse den vollen Betrag. Danach wird bei einer
+              Kündigung der Rest der bezahlten Laufzeit nicht erstattet; {plusName} bleibt
+              einfach bis zum Ende dieser Laufzeit aktiv. Früher gekaufte Token-Guthaben:
+              ungenutzte Tokens können innert 14 Tagen nach dem Kauf zurückgegeben werden
+              (anteilige Rückerstattung); für verbrauchte Tokens ist die Leistung erbracht.
+            </P>
+          ) : (
+            <P>
+              Ungenutzte Tokens können innert 14 Tagen nach dem Kauf per E-Mail an die oben
+              genannte Adresse zurückgegeben werden (anteilige Rückerstattung). Für bereits
+              verbrauchte Tokens ist die Leistung erbracht – dafür gibt es keine Rückerstattung.
+            </P>
+          )}
 
           <H>6. Verfügbarkeit und Gewähr</H>
           <P>
             Kniff ist ein Lernwerkzeug und ersetzt keinen Unterricht. KI-generierte
             Hinweise können im Einzelfall fehlerhaft sein; dafür wird keine Gewähr
             übernommen. Eine ununterbrochene Verfügbarkeit wird angestrebt, aber nicht
-            garantiert. Bei längeren Ausfällen werden betroffene Tokens auf Anfrage ersetzt.
+            garantiert. Bei längeren Ausfällen {abo ? "wird die Abo-Laufzeit auf Anfrage verlängert" : "werden betroffene Tokens auf Anfrage ersetzt"}.
           </P>
 
           <H>7. Konto und Missbrauch</H>

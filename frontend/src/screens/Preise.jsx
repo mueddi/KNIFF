@@ -17,6 +17,7 @@ function Feature({ children, color = "#1a7f3c" }) {
 function PreiseAlt() {
   const nav = useNavigate();
   const shell = useShell();
+  const reloadQuota = shell.reloadQuota;
   const { t } = useLang();
   const [params] = useSearchParams();
   const plan = shell.quota?.plan || "free";
@@ -35,14 +36,14 @@ function PreiseAlt() {
     if (z === "ok") {
       setNote({ type: "ok", text: t("Zahlung erhalten – deine Tokens werden in wenigen Sekunden gutgeschrieben. 🎉", "Payment received – your tokens will be credited in a few seconds. 🎉") });
       // Webhook braucht evtl. 1–2 Sekunden; Kontingent verzögert nachladen
-      const t1 = setTimeout(() => shell.reloadQuota?.(), 2500);
-      const t2 = setTimeout(() => shell.reloadQuota?.(), 8000);
+      const t1 = setTimeout(() => reloadQuota?.(), 2500);
+      const t2 = setTimeout(() => reloadQuota?.(), 8000);
       return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     if (z === "abbruch") {
       setNote({ type: "error", text: t("Zahlung abgebrochen – es wurde nichts belastet.", "Payment cancelled – nothing was charged.") });
     }
-  }, [params, shell]);
+  }, [params, reloadQuota]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function buy(pkg) {
     setBusyPkg(pkg);
@@ -187,6 +188,7 @@ function chf(rappen) {
 function PreisePlus({ quota }) {
   const nav = useNavigate();
   const shell = useShell();
+  const reloadQuota = shell.reloadQuota;
   const { t } = useLang();
   const [params] = useSearchParams();
   const [intervall, setIntervall] = useState("monat");
@@ -200,12 +202,12 @@ function PreisePlus({ quota }) {
     const z = params.get("zahlung");
     if (z === "ok") {
       setNote({ type: "ok", text: t("Zahlung erhalten – dein Abo ist in wenigen Sekunden aktiv. 🎉", "Payment received – your subscription will be active in a few seconds. 🎉") });
-      const t1 = setTimeout(() => shell.reloadQuota?.(), 2500);
-      const t2 = setTimeout(() => shell.reloadQuota?.(), 8000);
+      const t1 = setTimeout(() => reloadQuota?.(), 2500);
+      const t2 = setTimeout(() => reloadQuota?.(), 8000);
       return () => { clearTimeout(t1); clearTimeout(t2); };
     }
     if (z === "abbruch") setNote({ type: "error", text: t("Zahlung abgebrochen – es wurde nichts belastet.", "Payment cancelled – nothing was charged.") });
-  }, [params, shell]);
+  }, [params, reloadQuota]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function abschliessen() {
     setBusy(true);

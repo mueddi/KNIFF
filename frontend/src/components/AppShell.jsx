@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback, createContext, useContext } from "react";
+import { useEffect, useState, useCallback, useMemo, createContext, useContext } from "react";
 import { Outlet, useNavigate, useLocation, Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
@@ -134,13 +134,18 @@ export default function AppShell() {
     fontWeight: active ? 600 : 400,
   });
 
-  const shellValue = {
+  // useMemo, damit der Kontext-Wert nur wechselt, wenn sich wirklich etwas
+  // aendert. Vorher entstand bei jedem Render ein neues Objekt; Effekte mit
+  // `shell` in den Abhaengigkeiten (Preise-Seite nach der Rueckkehr von
+  // Stripe) liefen dadurch endlos: Kontingent laden -> Render -> neues
+  // Objekt -> Effekt -> Kontingent laden, alle 2.5 Sekunden.
+  const shellValue = useMemo(() => ({
     topics,
     reloadTopics: loadTopics,
     reloadQuota: loadQuota,
     openNewTask: (topicId) => setModal({ topicId: typeof topicId === "number" ? topicId : undefined }),
     quota,
-  };
+  }), [topics, loadTopics, loadQuota, quota]);
 
   return (
     <ShellCtx.Provider value={shellValue}>
