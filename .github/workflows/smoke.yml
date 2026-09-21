@@ -1,11 +1,19 @@
-name: Smoke-Test (Login)
+name: Smoke-Test (Login + Foto-Erkennung, von Hand)
+
+# Von Hand starten (Actions -> Run workflow). Enthaelt die Foto-Erkennung,
+# die bei jedem Deploy echtes Geld kostete und ein Bild in der Produktion
+# anlegte (60 Bilder bis 19.9.) - deshalb nicht mehr im Deploy.
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   smoke:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - name: Registrierung (200 beim ersten Mal, 409 danach – beides ok)
         run: |
@@ -34,3 +42,36 @@ jobs:
             -d '{"email":"schrittweise.smoketest@example.com","password":"absichtlich-falsch"}')
           echo "Falsches Passwort: HTTP $code"
           [ "$code" = "401" ] || exit 1
+
+      - name: Foto-Erkennung liest eine gedruckte Aufgabe (Live-E2E)
+        run: |
+          pip install -q pillow
+          python3 - <<'EOF'
+          from PIL import Image, ImageDraw, ImageFont
+          img = Image.new("RGB", (640, 220), "white")
+          d = ImageDraw.Draw(img)
+          try:
+              font = ImageFont.load_default(size=64)
+          except TypeError:  # aeltere Pillow-Version ohne size-Parameter
+              font = ImageFont.load_default()
+          d.text((40, 70), "3x + 5 = 20", fill="black", font=font)
+          img.save("/tmp/aufgabe.png")
+          EOF
+          token=$(curl -sS -X POST "https://kniff.app/api/auth/login" \
+            -H "Content-Type: application/json" \
+            -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}' \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
+          code=$(curl -sS -o /tmp/ocr.json -w "%{http_code}" -X POST \
+            "https://kniff.app/api/exercises/ocr" \
+            -H "Authorization: Bearer $token" \
+            -F "file=@/tmp/aufgabe.png;type=image/png")
+          echo "OCR: HTTP $code"; cat /tmp/ocr.json; echo ""
+          [ "$code" = "200" ] || exit 1
+          python3 - <<'EOF'
+          import json
+          d = json.load(open("/tmp/ocr.json"))
+          text = (d.get("text") or "").replace(" ", "")
+          assert "3x" in text and "20" in text, f"Erkennung unplausibel: {d.get('text')!r}"
+          assert d.get("image_path"), "image_path fehlt"
+          print("Erkennung ok:", d["text"])
+          EOF
