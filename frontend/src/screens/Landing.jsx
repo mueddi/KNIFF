@@ -14,7 +14,7 @@ import { useLang } from "../lib/i18n.jsx";
 //
 // Interaktiv statt Standbild: der Chat im Hero laesst sich durchspielen
 // (Antworten anklicken, die Hilfe-Leiter fuellt sich), die Stufen sind
-// Reiter, die Preise haben Monat/Jahr-Umschalter und einen kleinen Rechner.
+// Reiter, die Preise haben einen Monat/Jahr-Umschalter.
 // Alles ohne KI-Aufruf und ohne Konto – kostet nichts.
 
 const INDIGO = "#4f46e5";
@@ -242,27 +242,18 @@ function DemoChat() {
 }
 
 // ---------------------------------------------------------------------------
-// Preise: Monat/Jahr-Umschalter und ein kleiner Rechner «reichen die Tokens?»
+// Preise: Monat/Jahr-Umschalter mit Ersparnis
 // ---------------------------------------------------------------------------
 function PreisKarte({ preise, probe, plusName }) {
   const { t } = useLang();
   const nav = useNavigate();
   const [jaehrlich, setJaehrlich] = useState(false);
-  const [proWoche, setProWoche] = useState(6);
   const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
   const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
   const jahrProMonat = ((preise?.jahr_rappen ?? 8900) / 12 / 100).toFixed(2);
   const tokensMonat = preise?.plus_tokens_monat ?? 600;
   const pakete = preise?.pakete || [{ key: "schnupper", tokens: 200, rappen: 200 }, { key: "starter", tokens: 900, rappen: 900 }, { key: "power", tokens: 1900, rappen: 1900 }];
   const ersparnis = Math.round(((preise?.monat_rappen ?? 990) * 12 - (preise?.jahr_rappen ?? 8900)) / 100);
-
-  const bedarf = Math.round(proWoche * 4.33 * TOKENS_PRO_AUFGABE);
-  const anteil = Math.min(bedarf / tokensMonat, 1.6);
-  const urteil = bedarf <= tokensMonat * 0.8
-    ? { text: t("Reicht locker – es bleibt sogar etwas übrig.", "Plenty – there's even some left over."), farbe: "#1a7f3c" }
-    : bedarf <= tokensMonat
-      ? { text: t("Reicht knapp – passt für einen normalen Monat.", "Just enough – fits a normal month."), farbe: "#1a7f3c" }
-      : { text: t(`Mehr als drin ist: ein Paket dazu, zum Beispiel ${pakete[0].tokens} Tokens für CHF ${(pakete[0].rappen / 100).toFixed(0)}.–`, `More than included: add a package, e.g. ${pakete[0].tokens} tokens for CHF ${(pakete[0].rappen / 100).toFixed(0)}.–`), farbe: "#a05c12" };
 
   return (
     <>
@@ -315,28 +306,6 @@ function PreisKarte({ preise, probe, plusName }) {
         </div>
       </div>
 
-      {/* Rechner */}
-      <div style={{ ...card, marginTop: 16, display: "grid", gridTemplateColumns: "1.1fr .9fr", gap: 24, alignItems: "center" }} className="landing-hero">
-        <div>
-          <div style={{ fontSize: 15, fontWeight: 800, marginBottom: 4 }}>{t("Reichen die Tokens für mein Kind?", "Are the tokens enough for my child?")}</div>
-          <div style={{ fontSize: 13.5, color: TEXT_3, marginBottom: 14 }}>{t(`Eine Aufgabe braucht im Schnitt ${TOKENS_PRO_AUFGABE} Tokens (gemessen). Schieb den Regler auf die Aufgaben pro Woche.`, `A task takes ${TOKENS_PRO_AUFGABE} tokens on average (measured). Move the slider to tasks per week.`)}</div>
-          <label style={{ display: "flex", alignItems: "center", gap: 14, fontSize: 13.5 }}>
-            <input type="range" min={1} max={15} value={proWoche} onChange={(e) => setProWoche(Number(e.target.value))} className="landing-range" aria-label={t("Aufgaben pro Woche", "Tasks per week")} style={{ flex: 1 }} />
-            <span style={{ fontWeight: 800, minWidth: 130, fontVariantNumeric: "tabular-nums" }}>{proWoche} {t("Aufgaben/Woche", "tasks/week")}</span>
-          </label>
-        </div>
-        <div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12.5, color: TEXT_3, marginBottom: 6 }}>
-            <span>{t("Bedarf im Monat", "Monthly need")}: <b style={{ color: "#1a1c22" }}>{bedarf} Tokens</b></span>
-            <span>{t("im Abo", "included")}: <b style={{ color: "#1a1c22" }}>{tokensMonat}</b></span>
-          </div>
-          <div style={{ position: "relative", height: 12, background: "#f0f1f5", borderRadius: 6, overflow: "hidden" }}>
-            <div style={{ width: `${Math.min(anteil, 1) * 100}%`, height: "100%", background: urteil.farbe, transition: "width .25s ease" }} />
-            {anteil > 1 && <div style={{ position: "absolute", top: 0, left: "100%", transform: "translateX(-100%)", width: `${(anteil - 1) * 62}%`, height: "100%", background: "repeating-linear-gradient(45deg,#a05c12 0 4px,#f2ddb8 4px 8px)" }} />}
-          </div>
-          <div className="popin" key={urteil.text} style={{ fontSize: 13.5, fontWeight: 600, color: urteil.farbe, marginTop: 8 }}>{urteil.text}</div>
-        </div>
-      </div>
     </>
   );
 }

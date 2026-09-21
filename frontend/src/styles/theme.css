@@ -269,9 +269,6 @@ a {
 .landing-tab { border: 1px solid #e7e8ee; background: #fff; color: #4b5563; border-radius: 999px; padding: 9px 15px; font-size: 13.5px; font-weight: 700; cursor: pointer; transition: background .15s ease, color .15s ease, border-color .15s ease; }
 .landing-tab:hover { border-color: #c9ccf6; }
 .landing-tab-aktiv { background: #1a1c22; color: #fff; border-color: #1a1c22; }
-.landing-range { -webkit-appearance: none; appearance: none; height: 6px; border-radius: 999px; background: #e7e8ee; outline: none; }
-.landing-range::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 22px; height: 22px; border-radius: 50%; background: #4f46e5; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(79,70,229,.35); cursor: pointer; }
-.landing-range::-moz-range-thumb { width: 22px; height: 22px; border-radius: 50%; background: #4f46e5; border: 3px solid #fff; box-shadow: 0 2px 8px rgba(79,70,229,.35); cursor: pointer; }
 html { scroll-behavior: smooth; }
 @media (prefers-reduced-motion: reduce) {
   html { scroll-behavior: auto; }
