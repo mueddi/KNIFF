@@ -142,6 +142,24 @@ def _zielkonto(db: Session, user: User, student_id: int | None) -> User:
     raise HTTPException(status.HTTP_403_FORBIDDEN, i18n.t(lang, "Nur für Schüler- und Eltern-Konten.", "Only for student and parent accounts."))
 
 
+@router.get("/preise")
+def preise():
+    """Oeffentlich, ohne Anmeldung: was Kniff kostet und welches Modell gilt.
+
+    Die Startseite und die AGB lesen das hier, statt Zahlen fest einzubauen –
+    sonst stuende auf der Startseite «50 Gratis-Tokens», waehrend die App
+    schon Kniff Plus verkauft (oder umgekehrt). Keine Geheimnisse drin."""
+    return {
+        "abo_enabled": settings.abo_enabled,
+        "zahlung": settings.payments_enabled,
+        "plus_name": settings.plus_name,
+        "monat_rappen": settings.plus_preis_monat_rappen,
+        "jahr_rappen": settings.plus_preis_jahr_rappen,
+        "trial_tasks": settings.trial_tasks,
+        "free_monthly_tokens": settings.free_monthly_tokens,
+    }
+
+
 @router.post("/checkout")
 def create_checkout(request: Request, payload: CheckoutRequest | None = None,
                     user: User = Depends(get_current_user), db: Session = Depends(get_db)):
