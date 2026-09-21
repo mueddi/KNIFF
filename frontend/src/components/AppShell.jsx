@@ -190,6 +190,7 @@ export default function AppShell() {
             <>
               <div onClick={() => nav("/app/kosten")} style={{ ...navItem(isActive("kosten")), margin: "0 8px" }}>📊 {t("Kosten", "Costs")}</div>
               <div onClick={() => nav("/app/stoerungen")} style={{ ...navItem(isActive("stoerungen")), margin: "0 8px" }}>⚠️ {t("Störungen", "Incidents")}</div>
+              <div onClick={() => nav("/app/rueckmeldungen")} style={{ ...navItem(isActive("rueckmeldungen")), margin: "0 8px" }}>📝 {t("Rückmeldungen", "Feedback inbox")}</div>
               <div onClick={() => nav("/app/nutzer")} style={{ ...navItem(isActive("nutzer")), margin: "0 8px" }}>👥 {t("Nutzer", "Users")}</div>
               <div onClick={() => nav("/app/elternansicht")} style={{ ...navItem(isActive("elternansicht")), margin: "0 8px" }}>👁 {t("Elternansicht", "Parent view")}</div>
             </>
