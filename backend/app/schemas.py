@@ -298,6 +298,12 @@ class CheckoutRequest(BaseModel):
     student_id: int | None = None
 
 
+class TokenKaufRequest(BaseModel):
+    # Nachkauf eines Token-Pakets (nur mit aktivem Abo); student_id = Eltern
+    paket: str = Field(default="starter", max_length=20)
+    student_id: int | None = None
+
+
 class AboRequest(BaseModel):
     # Eltern kuendigen fuer ihr Kind; Schueler:innen lassen das Feld weg
     student_id: int | None = None
@@ -323,8 +329,9 @@ class QuotaOut(BaseModel):
     trial_tasks: int = 0
     trial_used: int = 0
     trial_left: int = 0
-    monat_verbraucht: int = 0  # Tokens diesen Monat (Fair-Use-Zaehler)
-    plus_limit: int = 0
+    monat_verbraucht: int = 0  # Tokens diesen Monat (Verbrauchszaehler)
+    plus_tokens_monat: int = 0  # was das Abo pro Monat gutschreibt
+    pakete: list[dict] = Field(default_factory=list)  # Nachkauf-Pakete (nur mit Abo)
     abo_bis: str | None = None
     abo_gekuendigt: bool = False
     abo_intervall: str | None = None

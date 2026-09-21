@@ -85,9 +85,11 @@ class Settings(BaseSettings):
     plus_name: str = "Kniff Plus"
     plus_preis_monat_rappen: int = 990
     plus_preis_jahr_rappen: int = 8900
-    # Fair-Use fuer Plus, still: 1500 Tokens ~ 90-150 Aufgaben, echte Kosten
-    # hoechstens ~5 CHF im Monat.
-    plus_monatslimit_tokens: int = 1500
+    # Was das Abo enthaelt: Tokens, die jeden Abrechnungsmonat gutgeschrieben
+    # werden (Jahresabo: zwoelf Monate auf einmal). 600 Tokens ~ 35-40 Aufgaben,
+    # echte Kosten hoechstens ~2 CHF. Unverbrauchte Tokens bleiben; wer mehr
+    # will, kauft Pakete dazu (nur mit Abo).
+    plus_tokens_monat: int = 600
     # Probe: die ersten Aufgaben sind gratis - einmalig, in Aufgaben gezaehlt.
     trial_tasks: int = 10
 

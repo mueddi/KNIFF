@@ -167,9 +167,46 @@ def test_rechnung_verlaengert_das_abo(client, stripe, neue_form):
     _post_event(client, "invoice.paid", invoice, event_id=f"evt_inv_{neue_form}")
     u = _user("mia@test.ch")
     assert u.abo_bis > datetime.utcnow() + timedelta(days=31)
+    assert u.token_balance == settings.plus_tokens_monat  # die Rechnung schreibt den Monat gut
     with SessionLocal() as db:
         zahlung = db.query(Payment).filter(Payment.session_id == "in_1").one()
-        assert (zahlung.amount_rappen, zahlung.tokens, zahlung.user_id) == (990, 0, uid)
+        assert (zahlung.amount_rappen, zahlung.tokens, zahlung.user_id) == (990, settings.plus_tokens_monat, uid)
+    # Dieselbe Rechnung nochmal (Retry): keine zweite Gutschrift
+    _post_event(client, "invoice.paid", invoice, event_id=f"evt_inv2_{neue_form}")
+    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
+
+
+def test_jahresrechnung_schreibt_zwoelf_monate_gut(client, stripe):
+    headers = register_pw(client, "mia@test.ch")
+    uid = _me(client, headers)["id"]
+    with SessionLocal() as db:
+        u = db.query(User).filter(User.email == "mia@test.ch").one()
+        u.stripe_subscription_id, u.abo_intervall = "sub_1", "monat"  # Konto sagt Monat ...
+        db.commit()
+    invoice = {"id": "in_jahr", "subscription": "sub_1", "amount_paid": 8900,
+               "lines": {"data": [{"period": {"end": _ts(365)},
+                                   "price": {"recurring": {"interval": "year"}}}]}}  # ... die Rechnung Jahr
+    _post_event(client, "invoice.paid", invoice, event_id="evt_jahr")
+    assert _user("mia@test.ch").token_balance == 12 * settings.plus_tokens_monat
+
+
+def test_abschluss_und_erste_rechnung_schreiben_nur_einmal_gut(client, stripe):
+    """checkout.session.completed und invoice.paid derselben Rechnung kommen
+    beide – in beliebiger Reihenfolge. Gutgeschrieben wird genau einmal."""
+    calls, antworten = stripe
+    headers = register_pw(client, "mia@test.ch")
+    uid = _me(client, headers)["id"]
+    antworten[("GET", "/v1/subscriptions/sub_1")] = _Resp(_sub_obj("sub_1", uid, 30))
+    session = {"id": "cs_1", "mode": "subscription", "payment_status": "paid", "invoice": "in_erste",
+               "amount_total": 990, "client_reference_id": str(uid), "customer": "cus_1",
+               "subscription": "sub_1", "metadata": {"user_id": str(uid), "intervall": "monat"}}
+    invoice = {"id": "in_erste", "subscription": "sub_1", "amount_paid": 990,
+               "lines": {"data": [{"period": {"end": _ts(30)}}]}}
+    _post_event(client, "checkout.session.completed", session, event_id="evt_cs")
+    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
+    _post_event(client, "invoice.paid", invoice, event_id="evt_in")
+    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
+    assert _user("mia@test.ch").abo_bis > datetime.utcnow() + timedelta(days=29)
 
 
 def test_rechnung_ohne_bekanntes_abo_gibt_200_und_alarm(client, stripe, monkeypatch):
