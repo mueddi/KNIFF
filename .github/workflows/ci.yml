@@ -2,12 +2,18 @@ name: CI
 
 on:
   push:
-    branches: ["main", "claude/**"]
+    branches: ["claude/**"]
   pull_request:
+  # Der Deploy (deploy.yml) ruft genau diese Jobs vor dem Deploy auf.
+  workflow_call:
+
+permissions:
+  contents: read
 
 jobs:
   backend-tests:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: backend
@@ -15,7 +21,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          # Gemessen im Vercel-Bauprotokoll: die Produktion laeuft mit
+          # CPython 3.14 - getestet wird, was live laeuft.
+          python-version: "3.14"
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
@@ -23,6 +31,7 @@ jobs:
 
   frontend-build:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: frontend

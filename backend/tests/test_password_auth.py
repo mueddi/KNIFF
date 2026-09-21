@@ -126,9 +126,11 @@ def test_change_password_via_email_link_needs_no_current(client):
     assert client.post("/api/auth/login", json={"email": "mia@test.ch", "password": "frisch-gesetzt-99"}).status_code == 200
 
 
-def test_passwordless_legacy_account_can_set_password(client):
+def test_passwordless_legacy_account_is_not_taken_over_by_register(client):
     # Alt-Konto aus der Magic-Link-Zeit (ohne Passwort, nie eingeloggt) –
-    # direkt in der DB anlegen, den Anlage-Weg gibt es nicht mehr
+    # direkt in der DB anlegen, den Anlage-Weg gibt es nicht mehr. Wer nur die
+    # E-Mail kennt, darf es NICHT per Registrierung uebernehmen (409); der
+    # Weg hinein ist «Passwort vergessen» mit Mail-Link.
     from app.database import SessionLocal
     from app.models import User
 
@@ -139,8 +141,9 @@ def test_passwordless_legacy_account_can_set_password(client):
         "/api/auth/register",
         json={"terms_accepted": True, "email": "alt@test.ch", "password": "jetzt-mit-passwort", "display_name": "Alt"},
     )
-    assert r.status_code == 200, r.text
-    assert client.post("/api/auth/login", json={"email": "alt@test.ch", "password": "jetzt-mit-passwort"}).status_code == 200
+    assert r.status_code == 409, r.text
+    assert "Passwort vergessen" in r.json()["detail"]
+    assert client.post("/api/auth/login", json={"email": "alt@test.ch", "password": "jetzt-mit-passwort"}).status_code != 200
 
 
 # ---- Registrierungs-Schutz (Launch-Punkt 2 + 4) ----

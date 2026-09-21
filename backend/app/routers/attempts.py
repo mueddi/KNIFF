@@ -14,7 +14,6 @@ from ..schemas import (
     AttemptStateOut,
     ChatRequest,
     ExerciseOut,
-    MessageOut,
     message_out,
 )
 from .. import i18n
@@ -27,6 +26,10 @@ router = APIRouter(prefix="/api/attempts", tags=["attempts"])
 # Verhindert, dass viele PARALLELE Anfragen das Guthaben-Gate ueberholen
 # (Abbuchung erfolgt erst nach der Antwort, Boden bei 0).
 CHAT_MAX_PER_MINUTE = 8
+# Kostenschranke pro Aufgabe: mit Kniff Plus sind die Probe-Aufgaben in
+# Runden unbegrenzt - ohne Deckel koennte eine einzige Aufgabe beliebig
+# teuer werden. 40 Nachrichten sind mehr, als je eine Aufgabe brauchte.
+CHAT_MAX_PER_ATTEMPT = 40
 
 
 def _ohne_offenen_figur_block(text: str) -> str:
@@ -178,6 +181,13 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                                    "Langsam 🙂 – eine Nachricht nach der anderen. Versuch es gleich nochmal.",
                                    "Slow down 🙂 – one message at a time. Try again in a moment."))
 
+    verlauf = db.scalar(select(func.count(Message.id)).where(Message.attempt_id == attempt.id)) or 0
+    if verlauf >= CHAT_MAX_PER_ATTEMPT:
+        raise HTTPException(status.HTTP_429_TOO_MANY_REQUESTS,
+                            i18n.t(lang,
+                                   "Diese Aufgabe ist lang geworden – starte sie neu oder nimm die nächste.",
+                                   "This task has become long – restart it or take the next one."))
+
     # Guthaben-Gate VOR jeder Zustandsaenderung: sonst staende die Nachricht
     # ohne Antwort im Verlauf und die Leiter wuerde sich gratis weiterdrehen.
     if quota.blocked_unverified(user):
@@ -185,11 +195,8 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                             i18n.t(lang,
                                    "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.",
                                    "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(lang,
-                                   "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.",
-                                   "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user, ex.id):
+        raise quota.sperre(db, user, lang, ex.id)
 
     # Angehaengtes Bild (Stift-Zeichnung/Foto aus /api/exercises/ocr) pruefen:
     # nur eigene, tatsaechlich gespeicherte Bilder duerfen an Nachrichten haengen.
@@ -279,7 +286,7 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
     reply_level = None if already_solved else step.allowed_stage
 
     exercise_id_local = ex.id
-    unlimited_local = quota.is_unlimited(user)
+    stufe_local = quota.stufe(db, user, ex.id)
     # Darf der Tutor diese Runde selbst abhaken?
     # * Nicht, wenn die Aufgabe schon zu ist.
     # * Nicht, wenn SymPy WIDERSPRICHT – dann bleibt SymPy die Autoritaet und
@@ -357,10 +364,11 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                     # Verrechnung + Erfassung im selben Commit wie die Tutor-Message,
                     # damit charged_tokens nie vom tatsaechlich Abgebuchten abweicht.
                     charged = 0
-                    if not unlimited_local:
+                    if stufe_local != "school":
                         charged = usage.charged_tokens(
                             usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
-                        quota.charge(s, user_id_local, charged)
+                        quota.charge(s, user_id_local, charged,
+                                     vom_guthaben=stufe_local == "guthaben")
                     usage.record(s, "chat", usage_out.get("model", ""), usage_out["usage"],
                                  user_id=user_id_local, exercise_id=exercise_id_local,
                                  charged=charged)

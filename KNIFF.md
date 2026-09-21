@@ -7,7 +7,7 @@
 > ersten Besuch erkannt, manuell umstellbar (Landing/Login/Einstellungen); der
 > Tutor antwortet in der gewählten Sprache.
 
-Live: **https://schrittweise-2-0.vercel.app** · Der visuelle Massstab ist
+Live: **https://kniff.app** (seit 16.9.2026) · Der visuelle Massstab ist
 `design/referenz.html` (im Browser öffnen).
 
 ## Der Name
@@ -28,9 +28,9 @@ kumpelhaft, geduldig, nie belehrend, nie überwachend (steht so im
 `SYSTEM_PROMPT`, `backend/app/services/tutor.py`). Gegenüber Eltern
 seriös-kompetent, aber warm und klar – kein Bildungsjargon, keine KI-Buzzwords.
 
-> **Noch auf den alten Namen:** die Live-Adresse (`schrittweise-2-0.vercel.app`),
-> das Vercel-Projekt, der GitHub-Repo-Name, die Backup-Dateinamen und die
-> Absender-Domain in `smtp_from`. Das sind Infrastruktur-Bezeichner – sie zu
+> **Noch auf den alten Namen:** das Vercel-Projekt (`schrittweise-2-0`, nur
+> intern sichtbar), die Backup-Dateinamen und die Absender-Domain in
+> `smtp_from`. Das sind Infrastruktur-Bezeichner – sie zu
 > ändern bricht Deploy und Backups und gehört in einen eigenen, bewussten
 > Schritt (siehe unten «Umbenennen: was noch offen ist»).
 
@@ -58,22 +58,47 @@ seriös-kompetent, aber warm und klar – kein Bildungsjargon, keine KI-Buzzword
 | Handschrift/Foto | **Claude Vision** (liest Stift-Eingabe und Fotos; ohne API-Key: einfacher lokaler Fallback) |
 | DB | **Supabase Postgres** (lokal SQLite) via SQLAlchemy |
 | Auth | **E-Mail + Passwort** (scrypt) + JWT; Mail-Link nur für «Passwort vergessen» |
-| Zahlung | **Stripe Checkout** (Karte/TWINT), signierter Webhook |
+| Zahlung | **Stripe Checkout** als Abo (Karte/TWINT), signierter Webhook, Kündigen aus der App |
 | Deployment | **Vercel** über GitHub Actions (Push auf `main` → Test → Deploy → Smoke-Test) |
 
-## 💰 Preismodell (nutzungsbasiert)
+## 💰 Preismodell: Kniff Plus (Abo) – hinter dem Schalter `ABO_ENABLED`
 
-**1 Token = 1 Rappen verrechnete KI-Leistung.** Jede Tutor-Antwort bucht
-`max(1, aufgerundet(echte Kosten × USD_CHF_RATE × BILLING_MARGIN))` Tokens ab –
-eine normale Antwort ≈ 1 Token, eine Foto-/Geometrie-Antwort ≈ 3–5. Auch die
-Handschrift-Erkennung wird so abgerechnet; die KI-Suche der Bibliothek ist
-gratis (gedrosselt).
+Seit dem 9.9.2026 im Code, live erst mit `ABO_ENABLED=true` (im
+`RUNTIME_ENV_JSON`). Solange der Schalter aus ist, gilt das alte Modell
+(50 Gratis-Tokens im Monat, Einmal-Pakete) unverändert.
 
-- **Gratis:** 50 Tokens pro Konto und Monat (`FREE_MONTHLY_TOKENS`).
-- **Pakete:** Schnupper CHF 2 → 200 Tokens · Starter CHF 9 → 900 · Power
-  CHF 19 → 1900 (definiert in `backend/app/routers/pay.py`).
-- **Marge:** `BILLING_MARGIN=3.0` – Schüler zahlen das Dreifache der echten
-  Anthropic-Kosten; du kannst nie draufzahlen.
+- **Probe:** die ersten **10 Aufgaben** sind gratis – einmalig, nicht
+  monatlich (`TRIAL_TASKS`). Gezählt werden begonnene Aufgaben; weitere
+  Runden und Wiederholungen dieser Aufgaben bleiben frei.
+- **Kniff Plus:** **CHF 9.90 im Monat oder 89.– im Jahr pro Kind**
+  (`PLUS_PREIS_MONAT_RAPPEN`, `PLUS_PREIS_JAHR_RAPPEN`), «so viel üben, wie du
+  willst», jederzeit kündbar (läuft bis Periodenende). Stille Fair-Use-Grenze
+  von 1500 Tokens im Monat (`PLUS_MONATSLIMIT_TOKENS`, echte Kosten höchstens
+  ≈ 5 CHF); beim Erreichen eine freundliche Sperre ohne Verkaufsversuch.
+- **Eltern** sehen in der Elternansicht den Stand ihres Kindes und schliessen
+  das Abo dort ab (Rechnung an die Eltern-Adresse, Abo hängt am Kind).
+- **Altes Guthaben** (Einmal-Pakete) bleibt nutzbar und wird nach der Probe
+  weiter abgebucht; neu kaufen kann man es nicht mehr.
+- **Intern** bleibt alles in Tokens (1 Token = 1 Rappen verrechnete
+  KI-Leistung, `max(1, aufgerundet(echte Kosten × USD_CHF_RATE ×
+  BILLING_MARGIN))` pro Antwort, `BILLING_MARGIN=3.0`) – als Fair-Use-Zähler
+  (`users.free_used_tokens`/`free_month` zählen den GESAMTEN Monatsverbrauch)
+  und für die Kostenseite. Nutzer:innen sehen nur noch Aufgaben.
+- **Stripe:** Checkout mit `mode=subscription` und Preis inline (nichts im
+  Stripe-Dashboard anzulegen); Kündigen über `POST /api/pay/abo/kuendigen`
+  (`cancel_at_period_end`), kein Kundenportal. Jeder Aufruf mit
+  `Stripe-Version: 2026-05-27` – TWINT-Abos gibt es erst ab dieser Version.
+  Der Webhook braucht **vier** Ereignisse: `checkout.session.completed`,
+  `invoice.paid`, `customer.subscription.updated`,
+  `customer.subscription.deleted` – idempotent über `stripe_events`.
+- **Kostenschranke:** höchstens 40 Nachrichten pro Aufgabe (`CHAT_MAX_PER_ATTEMPT`).
+- **Marge:** bei 9.90 bleiben nach Stripe (≈ 0.59) und typischen KI-Kosten
+  (0.50–1.50) ≈ 8.– pro Kind und Monat.
+
+Gemessen vor der Umstellung (Juli–September 2026): eine Antwort mit Haiku
+kostete 2 Tokens, die erste Antwort einer Aufgabe 4, ein Foto 2 – eine
+typische Aufgabe ≈ 16 Tokens; 50 Gratis-Tokens reichten für etwa 3 Aufgaben
+(die Startseite versprach «20–40 Antworten»). Echte Käufe: null.
 - **Qualitäts-Option:** `ANTHROPIC_MODEL_DEFAULT=claude-sonnet-5` im
   `RUNTIME_ENV_JSON` hebt auch den Text-Chat aufs starke Modell (bis
   31.08.2026 Einführungspreis ≈ 2× Haiku; dank Caching kaum Mehrkosten).
@@ -119,11 +144,12 @@ Environment Variables**, Umgebung **nur Preview**:
 |---|---|
 | `JWT_SECRET` | irgendein langer Zufallswert; ohne ihn verweigert `_check_production_config()` den Start (`VERCEL` gesetzt ⇒ `is_production`) |
 
-Bewusst **nicht** gesetzt: `DATABASE_URL` – dann fällt `api/index.py:56` auf eine
-leere Wegwerf-Datenbank (SQLite in `/tmp`) zurück und ein Testlauf kann die
-echten Schülerdaten nicht berühren. Ebenso `ANTHROPIC_API_KEY` – ohne Schlüssel
-antwortet der deterministische Mock, was für einen Start-Test genügt und nichts
-kostet.
+Dazu (seit 7.9., siehe `CLAUDE.md`): `DATABASE_URL` auf das eigene
+Supabase-Projekt **kniff-vorschau** – die frühere Wegwerf-Datenbank (SQLite in
+`/tmp`) gehörte jeweils nur einer Serverless-Instanz und warf einen nach dem
+Anmelden sofort wieder raus. Und `ANTHROPIC_API_KEY` mit eigenem Schlüssel,
+damit Testkosten getrennt sichtbar sind. Die Produktionsdaten berührt eine
+Vorschau nie.
 
 Für **Production** in Vercel bewusst **nichts** eintragen: die Werte kommen dort
 weiterhin aus dem Sidecar. (Falls doch einmal nötig – in Vercel gesetzte
@@ -149,7 +175,7 @@ Kommentaren in `backend/.env.example`):
 | `DATABASE_URL` | Supabase **Session pooler**-URL |
 | `ANTHROPIC_API_KEY` | echter Tutor (ohne Key: deterministischer Mock) |
 | `SUPABASE_URL` + `SUPABASE_ANON_KEY` | «Passwort vergessen»-Mails über Supabase Auth |
-| `FRONTEND_BASE_URL` | `https://schrittweise-2-0.vercel.app` |
+| `FRONTEND_BASE_URL` | `https://kniff.app` (auf Vercel automatisch aus der Projekt-Domain, siehe `app/plattform.py`) |
 | `FREE_MONTHLY_TOKENS`, `BILLING_MARGIN`, `USD_CHF_RATE` | Preismodell (Defaults 50 / 3.0 / 0.90) |
 | `REQUIRE_EMAIL_VERIFICATION` | E-Mail-Bestätigungs-Pflicht – **erst aktivieren, wenn der Mailversand nachweislich läuft** |
 | `SMTP_*` + `ALERT_EMAIL` | eigener Mailversand; schaltet auch Betreiber-Alarm-Mails frei |
@@ -173,7 +199,7 @@ Passwort-Änderung invalidiert alle alten Tokens; Magic-Link-Tokens nur gehasht.
 - **Störungen:** KI-/OCR-/Webhook-Fehler erscheinen unter Admin → Kosten
   («Letzte Störungen») und gehen per Mail an `ALERT_EMAIL`, sobald SMTP
   konfiguriert ist. Für Ausfall-Überwachung von aussen: Gratis-Monitor
-  (z. B. UptimeRobot) auf `https://schrittweise-2-0.vercel.app/api/health`.
+  (z. B. UptimeRobot) auf `https://kniff.app/api/health`.
 
 ## Projektstruktur
 
@@ -240,9 +266,11 @@ Token-Modell ab; Tests, Backups, Alarme und Härtung sind eingebaut. Offen:
    1. Stripe-Dashboard → **Entwickler → API-Schlüssel** → «Geheimer
       Schlüssel» kopieren (Testmodus: beginnt mit `sk_test_`).
    2. Stripe-Dashboard → **Entwickler → Webhooks → Endpunkt hinzufügen**:
-      URL `https://schrittweise-2-0.vercel.app/api/pay/webhook`, Event
-      **nur** `checkout.session.completed`. Danach das
-      **Signaturgeheimnis** des Endpunkts kopieren (`whsec_…`).
+      URL `https://kniff.app/api/pay/webhook` (Stripe folgt KEINEN
+      Umleitungen – die alte Adresse funktioniert dort nicht), Events
+      `checkout.session.completed`, `invoice.paid`,
+      `customer.subscription.updated`, `customer.subscription.deleted`.
+      Danach das **Signaturgeheimnis** des Endpunkts kopieren (`whsec_…`).
    3. GitHub → Repo → **Settings → Secrets and variables → Actions →
       New repository secret**: `STRIPE_SECRET_KEY` (Schritt 1) und
       `STRIPE_WEBHOOK_SECRET` (Schritt 2). Beide Werte gehören **nur**
@@ -250,11 +278,11 @@ Token-Modell ab; Tests, Backups, Alarme und Härtung sind eingebaut. Offen:
    4. Deploy auslösen (beliebiger Push auf `main` oder Actions →
       «Deploy (Vercel)» → «Run workflow»). Die Schlüssel landen über den
       Sidecar in der Laufzeit-Konfiguration.
-   5. **Prüfen:** `https://schrittweise-2-0.vercel.app/api/health` muss
+   5. **Prüfen:** `https://kniff.app/api/health` muss
       `"zahlung": true` zeigen. Dann auf der Preise-Seite mit der
       Stripe-Testkarte `4242 4242 4242 4242` (beliebiges künftiges
-      Datum, CVC 123) kaufen → Tokens erscheinen innerhalb von Sekunden;
-      in Stripe steht der Webhook auf «Erfolgreich».
+      Datum, CVC 123) das Abo abschliessen → «Kniff Plus aktiv» erscheint
+      innerhalb von Sekunden; in Stripe steht der Webhook auf «Erfolgreich».
    6. **TWINT** (die Preise-Seite bewirbt es): Stripe-Dashboard →
       **Einstellungen → Zahlungsmethoden → TWINT aktivieren**. Braucht
       ein Schweizer Stripe-Konto und CHF – beides ist gegeben.
@@ -283,8 +311,8 @@ eine eigene, bewusste Umstellung:
 
 | Was | Heute | Warum offen |
 |---|---|---|
-| Live-Adresse | `schrittweise-2-0.vercel.app` | Umbenennen des Vercel-Projekts ändert die URL – erst eine eigene Domain (z. B. `kniff.ch`) verbinden, dann umstellen |
-| GitHub-Repo | `mueddi/Schrittweise-2.0` | Umbenennen bricht alle bestehenden Klone und den Deploy-Workflow, bis er nachgezogen ist |
+| ~~Live-Adresse~~ | `kniff.app` seit 16.9. | Erledigt (Domain bei Squarespace, A-Eintrag auf Vercel). Beim Umbau fiel der Alias `schrittweise-2-0.vercel.app` aus dem Projekt – alte Links sind tot, bis er in Vercel als 308-Umleitung auf `kniff.app` wieder eingetragen ist. Stripe-Webhook und Supabase-Redirect-URLs müssen ausdrücklich auf `kniff.app` stehen |
+| ~~GitHub-Repo~~ | `mueddi/KNIFF` seit 9.9. | Erledigt. Der Deploy brach dabei wie vorhergesagt (Vercel-CLI riet den Projektnamen aus dem Ordner «KNIFF»); seither stehen `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` fest in `deploy.yml`. Alte Klone und Links funktionieren über GitHubs Weiterleitung |
 | Absender der Mails | `no-reply@schrittweise.ch` | Die Domain muss zuerst existieren und im Mailversand freigegeben sein, sonst landen Mails im Spam |
 | Backup-Dateinamen, Log-Namen, `sw_token` im Browser | `schrittweise…` | Rein intern; ein Wechsel würde alte Backups schwerer auffindbar machen und alle Nutzer ausloggen |
 

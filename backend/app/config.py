@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-nur-fuer-lokal-nicht-in-produktion"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 43200  # 30 Tage
+    # Ausweis aus einem Mail-Link (via=email) erlaubt Passwort-Neusetzen und
+    # Kontoloeschung ohne Passwort - darum kurzlebig, nicht 30 Tage.
+    jwt_email_expire_minutes: int = 60
 
     # Datenbank – SQLite lokal, per DATABASE_URL auf Postgres umstellbar
     database_url: str = "sqlite:///./schrittweise.db"
@@ -72,6 +75,21 @@ class Settings(BaseSettings):
     # Stripe (Token-Paket-Kauf); beide leer = Zahlung deaktiviert
     stripe_secret_key: str = ""
     stripe_webhook_secret: str = ""
+    # TWINT-Abos gibt es bei Stripe erst ab dieser API-Version (27.5.2026);
+    # damit liegt current_period_end am Abo-Posten (items.data[0]).
+    stripe_api_version: str = "2026-05-27"
+
+    # Kniff Plus: EIN Abo pro Kind statt Token-Pakete. Solange der Schalter
+    # aus ist, verhaelt sich die App exakt wie bisher (Gratis-Tokens + Guthaben).
+    abo_enabled: bool = False
+    plus_name: str = "Kniff Plus"
+    plus_preis_monat_rappen: int = 990
+    plus_preis_jahr_rappen: int = 8900
+    # Fair-Use fuer Plus, still: 1500 Tokens ~ 90-150 Aufgaben, echte Kosten
+    # hoechstens ~5 CHF im Monat.
+    plus_monatslimit_tokens: int = 1500
+    # Probe: die ersten Aufgaben sind gratis - einmalig, in Aufgaben gezaehlt.
+    trial_tasks: int = 10
 
     @property
     def payments_enabled(self) -> bool:

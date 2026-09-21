@@ -55,7 +55,6 @@ MAX_TOKENS = 700
 # "Antwort am Token-Limit abgeschnitten").
 MAX_TOKENS_LOESUNG = 1400
 # Der Transkriptions-Call soll NUR abschreiben, nicht erklaeren.
-MAX_TOKENS_TRANSKRIPT = 350
 
 # Zeitbudget. Vercel bricht nach 60 s ab; damit die App den Ausfall selbst
 # bemerkt und die freundliche Meldung ausgeben kann, bleibt alles darunter.
@@ -471,48 +470,24 @@ def pick_model(exercise_text: str, exercise_expr: str | None) -> str:
     return settings.anthropic_model_default
 
 
-def braucht_eskalation(letzte_intents: list[str], widerspruch: bool = False) -> bool:
-    """Reaktives Routing: hat das guenstige Modell hier nachweislich versagt?
-
-    Statt vorher zu raten, ob eine Aufgabe «schwer» ist, eskalieren wir dort,
-    wo es sichtbar schiefging. Beide Signale rechnet die App ohnehin schon aus:
-
-    ``letzte_intents``: die Intents der letzten Turns dieser Aufgabe, aeltester
-    zuerst. Zweimal hintereinander "simpler" heisst: das Kind versteht die
-    Erklaerung wieder nicht – dann lohnt das starke Modell fuer EINEN Turn.
-    ``widerspruch``: die letzte Tutor-Antwort widersprach der verifizierten
-    Loesung (vom Aufrufer geprueft).
-    """
-    if widerspruch:
-        return True
-    return letzte_intents[-2:] == ["simpler", "simpler"]
-
-
 def choose_model(step: LadderStep, exercise_text: str, exercise_expr: str | None,
                  verification: Verification | None = None,
-                 last_image: tuple[bytes, str] | None = None,
-                 eskalation: bool = False) -> str:
+                 last_image: tuple[bytes, str] | None = None) -> str:
     """Welches Modell beantwortet DIESEN Turn?
 
     Reihenfolge der Signale, von gut nach schlecht:
-    1. Eine Schuelerzeichnung im Tutor-Call -> starkes Modell. Besser ist der
-       Weg ueber transcribe_drawing(): dann kommt hier gar kein Bild mehr an
-       und das Gespraech bleibt auf EINEM Modell (jeder Wechsel schreibt den
-       ganzen Cache-Praefix neu).
-    2. Reaktive Eskalation (siehe braucht_eskalation) -> starkes Modell.
-    3. SymPy hat die Aufgabe geloest -> guenstiges Modell reicht. Der Tutor
+    1. Eine Schuelerzeichnung im Tutor-Call -> starkes Modell.
+    2. SymPy hat die Aufgabe geloest -> guenstiges Modell reicht. Der Tutor
        bekommt das verifizierte Ergebnis als Kompass und muss die Mathematik
        nicht selbst herleiten – auch auf Stufe 4 nicht, wo er sie nur noch
        sauber praesentiert. Das ist der bessere Schwierigkeits-Klassifikator
        als jede Stichwortliste: was SymPy loest, ist mechanisch.
-    4. Stufe 4 OHNE verifizierte Loesung -> starkes Modell: hier muss der
+    3. Stufe 4 OHNE verifizierte Loesung -> starkes Modell: hier muss der
        Tutor den ganzen Loesungsweg selbst herleiten und vorrechnen; ein
        Rechenfehler an dieser Stelle ist der teuerste, den es gibt.
-    5. Sonst die Textheuristik.
+    4. Sonst die Textheuristik.
     """
     if last_image is not None:
-        return settings.anthropic_model_smart
-    if eskalation:
         return settings.anthropic_model_smart
     if verification is not None and verification.solution:
         return settings.anthropic_model_default
@@ -756,8 +731,7 @@ def _history_to_messages(history: list[dict], image: tuple[bytes, str] | None = 
 
     if last_image is not None:
         # Zeichnung der AKTUELLEN Nachricht. Nur das juengste Bild geht mit –
-        # aeltere stehen als erkannter Text im Verlauf. Besser ist der Weg
-        # ueber transcribe_drawing(), siehe dort.
+        # aeltere stehen als erkannter Text im Verlauf.
         for m in reversed(msgs):
             if m["role"] == "user":
                 block = [{"type": "text", "text": BILD_SCHUELER}, _image_block(last_image)]
@@ -907,58 +881,6 @@ def _client():
 
 
 # ---- Zeichnung transkribieren (eigener, billiger Call) ----
-TRANSKRIPT_SYSTEM = """Du liest Handschrift von Schulkindern ab – mehr nicht.
-
-Gib NUR wieder, was wirklich auf dem Bild steht: Rechnungen, Zwischenschritte, Zahlen, Beschriftungen. In der Reihenfolge, wie es dasteht.
-- Erklaere nichts, korrigiere nichts, rechne nichts nach. Ein Fehler des Kindes wird genauso abgeschrieben, wie er dasteht.
-- Formeln in Dollarzeichen: $3x + 5 = 20$.
-- Unleserliches als [unleserlich] markieren, nicht raten.
-- Ist eine Figur gezeichnet, beschreib sie in einem Satz und haeng, wenn moeglich, eine Zeile an:
-  FIGUR: {"typ":"figur","punkte":[[0,0],[80,0],[60,40]],"labels":[{"x":40,"y":-8,"text":"a"}]}
-  Erlaubte Typen: figur, bruch, waage, zahlenstrahl, koordinaten, prozentbalken.
-- Ist das Blatt leer oder nur gekritzelt, schreib genau: (nichts Erkennbares)
-Antworte in hoechstens 5 Zeilen."""
-
-
-def transcribe_drawing(image: tuple[bytes, str], aufgabe: str | None = None,
-                       usage_out: dict | None = None) -> str:
-    """Eine Schuelerzeichnung in Text verwandeln – separat vom Tutor-Gespraech.
-
-    Warum eigener Call statt Bild im Tutor-Turn: ein Bild im Gespraech loest
-    heute drei Kosten gleichzeitig aus – der Turn geht ans starke Modell, der
-    Modellwechsel schreibt den ganzen Cache-Praefix neu, und ein hinzugefuegtes
-    Bild invalidiert den Message-Cache ohnehin. Ein Transkriptions-Call mit
-    kurzem Prompt und ohne Verlauf kostet einen Bruchteil davon, und das
-    eigentliche Gespraech bleibt auf EINEM Modell mit warmem Cache.
-
-    Rueckgabe ist Text fuer den Verlauf (als Schuelernachricht). Deshalb steht
-    das Figuren-JSON als «FIGUR: {...}» da und nicht in [[FIGUR]]-Markern:
-    Steuer-Marker werden aus Schuelertext entfernt, die Zeile ueberlebt das.
-    """
-    if not (settings.anthropic_api_key and anthropic):
-        return "(Zeichnung – Transkription nicht verfuegbar)"
-    inhalt = [{"type": "text", "text": BILD_SCHUELER}, _image_block(image)]
-    if aufgabe:
-        inhalt.append({"type": "text",
-                       "text": f"Zur Einordnung, die Aufgabe lautet: {ohne_steuer_marker(aufgabe)[:400]}"})
-    model = settings.anthropic_model_smart
-    try:
-        antwort = _client().messages.create(
-            model=model, max_tokens=MAX_TOKENS_TRANSKRIPT,
-            system=TRANSKRIPT_SYSTEM,
-            messages=[{"role": "user", "content": inhalt}], **_zusatz_parameter(model))
-    except Exception as exc:
-        log.exception("Transkription der Zeichnung fehlgeschlagen")
-        from . import alert
-
-        alert.notify("ki", f"Zeichnung konnte nicht gelesen werden: {type(exc).__name__}",
-                     key="transkript")
-        return "(Zeichnung – konnte nicht gelesen werden)"
-    _merke_usage(usage_out, model, antwort.usage)
-    text = "".join(b.text for b in antwort.content if getattr(b, "type", "") == "text").strip()
-    return text or "(nichts Erkennbares)"
-
-
 # ---- Haupt-Call ----
 def stream_reply(history, step: LadderStep, verification: Verification,
                  exercise_text: str, exercise_expr: str | None,
@@ -966,24 +888,21 @@ def stream_reply(history, step: LadderStep, verification: Verification,
                  image: tuple[bytes, str] | None = None,
                  usage_out: dict | None = None,
                  last_image: tuple[bytes, str] | None = None,
-                 language: str = "de",
-                 eskalation: bool = False):
+                 language: str = "de"):
     """Generator, der Text-Chunks der Tutor-Antwort liefert (Streaming).
 
     ``image``: Foto der Aufgabenstellung. Nur uebergeben, wenn wirklich eine
     FIGUR drauf ist – bei reinem Text reicht das OCR-Transkript, und ein
     mitgeschlepptes Foto kostet in jedem Turn.
-    ``last_image``: Zeichnung der aktuellen Nachricht. Besser vorher durch
-    transcribe_drawing() schicken und das Transkript in die history legen.
+    ``last_image``: Zeichnung der aktuellen Nachricht.
     ``usage_out``: wird mit model, usage und den Cache-Feldern gefuellt.
-    ``eskalation``: einmalig das starke Modell erzwingen, siehe braucht_eskalation.
     """
     if not (settings.anthropic_api_key and anthropic):
         yield from _mock_reply(step, verification, exercise_text, language)
         return
 
     client = _client()
-    model = choose_model(step, exercise_text, exercise_expr, verification, last_image, eskalation)
+    model = choose_model(step, exercise_text, exercise_expr, verification, last_image)
     regie = _regie(step, verification, exercise_text, exercise_expr, grade_level, language,
                    from_image=image is not None)
     messages = _history_to_messages(history, image, last_image, regie=regie,

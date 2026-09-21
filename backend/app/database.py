@@ -24,7 +24,10 @@ DATABASE_URL = _normalize_url(settings.database_url)
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 else:
-    connect_args = {"options": "-c timezone=utc"}
+    # connect_timeout: ist der Supabase-Pooler nicht erreichbar, soll die
+    # Funktion nach 5 s mit einer klaren 503 antworten statt bis zum
+    # TCP-Timeout zu haengen (Vercel bricht bei 60 s hart ab).
+    connect_args = {"options": "-c timezone=utc", "connect_timeout": 5}
 
 _engine_kwargs: dict = {"connect_args": connect_args, "pool_pre_ping": True}
 if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
@@ -34,6 +37,16 @@ if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
     _engine_kwargs.pop("pool_pre_ping")
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite ignoriert Fremdschluessel, solange man es nicht bittet. In der
+    # Produktion (Postgres) sind sie hart – ohne dieses PRAGMA fielen
+    # Loeschfehler (z.B. Konto mit Noten) erst live auf, nie in den Tests.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_fremdschluessel(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 
@@ -140,6 +153,13 @@ def _schema_sicherstellen() -> None:
         ("feedback", "image_path", "ALTER TABLE feedback ADD COLUMN image_path VARCHAR(255)"),
         ("feedback", "context", "ALTER TABLE feedback ADD COLUMN context TEXT"),
         ("feedback", "resolved_at", "ALTER TABLE feedback ADD COLUMN resolved_at TIMESTAMP"),
+        # Kniff Plus (Stripe-Abo): alles nullable bzw. mit Default, damit
+        # Bestandskonten unveraendert gueltig bleiben.
+        ("users", "stripe_customer_id", "ALTER TABLE users ADD COLUMN stripe_customer_id VARCHAR(64)"),
+        ("users", "stripe_subscription_id", "ALTER TABLE users ADD COLUMN stripe_subscription_id VARCHAR(64)"),
+        ("users", "abo_bis", "ALTER TABLE users ADD COLUMN abo_bis TIMESTAMP"),
+        ("users", "abo_gekuendigt", "ALTER TABLE users ADD COLUMN abo_gekuendigt BOOLEAN DEFAULT FALSE NOT NULL"),
+        ("users", "abo_intervall", "ALTER TABLE users ADD COLUMN abo_intervall VARCHAR(8)"),
     ]
     # Spalten EINMAL pro Tabelle holen statt einmal pro Migrations-Eintrag:
     # 13 Eintraege verteilen sich auf 4 Tabellen.

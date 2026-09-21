@@ -33,9 +33,13 @@ on:
 env:
   VORSCHAU_REF: fdgbeicshpttcqnhinso
 
+permissions:
+  contents: read
+
 jobs:
   steuern:
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: Secret prüfen
         env:
@@ -67,14 +71,12 @@ jobs:
             workflow_dispatch) aktion="${{ inputs.aktion }}" ;;
             schedule)
               # Gab es in den letzten 24 h einen Push auf irgendeinen Zweig ausser main?
-              seit=$(date -u -d '24 hours ago' +%Y-%m-%dT%H:%M:%SZ)
-              aktiv=0
-              for zweig in $(gh api "repos/${{ github.repository }}/branches?per_page=100" --jq '.[].name'); do
-                [ "$zweig" = "main" ] && continue
-                n=$(gh api "repos/${{ github.repository }}/commits?sha=$zweig&since=$seit&per_page=1" --jq 'length')
-                if [ "$n" -gt 0 ]; then aktiv=1; echo "Zweig $zweig hatte Pushes seit $seit"; fi
-              done
-              if [ "$aktiv" = "0" ]; then aktion="pausieren"; else aktion="nichts"; fi ;;
+              # Die Activity-API liefert die echte PUSH-Zeit; das Commit-Datum
+              # (frueher: commits?since=) kann aelter sein als der Push.
+              n=$(gh api "repos/${{ github.repository }}/activity?time_period=day&activity_type=push&per_page=100" \
+                    --jq '[.[] | select(.ref != "refs/heads/main")] | length')
+              echo "Pushes auf Arbeitszweige in den letzten 24 h: $n"
+              if [ "$n" = "0" ]; then aktion="pausieren"; else aktion="nichts"; fi ;;
           esac
           echo "aktion=$aktion" >> "$GITHUB_OUTPUT"
           echo "Aktion: $aktion"

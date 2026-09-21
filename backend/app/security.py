@@ -14,7 +14,8 @@ def create_access_token(user_id: int, role: str, via: str = "password",
     ohne altes Passwort (Passwort-vergessen-Flow).
     token_version ("tv"): Passwort-Aenderung erhoeht die Version am Konto und
     macht damit alle vorher ausgestellten Tokens sofort ungueltig."""
-    expire = datetime.now(timezone.utc) + timedelta(minutes=settings.jwt_expire_minutes)
+    minuten = settings.jwt_email_expire_minutes if via == "email" else settings.jwt_expire_minutes
+    expire = datetime.now(timezone.utc) + timedelta(minutes=minuten)
     payload = {"sub": str(user_id), "role": role, "via": via, "tv": token_version, "exp": expire}
     return jwt.encode(payload, settings.jwt_secret, algorithm=settings.jwt_algorithm)
 

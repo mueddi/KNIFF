@@ -235,12 +235,10 @@ def start_exercise(aufgabe_id: int, user: User = Depends(require_student), db: S
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(i18n.lang_of(user), "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.",
                                    "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.",
-                                   "Your balance is used up. Top up tokens or wait for next month."))
     ex = db.scalar(select(Exercise).where(Exercise.user_id == user.id, Exercise.library_id == vorlage.id)
                    .order_by(Exercise.id.desc()).limit(1))
+    if not quota.can_use_ki(db, user, ex.id if ex else None):
+        raise quota.sperre(db, user, i18n.lang_of(user), ex.id if ex else None)
     if ex is None:
         ex = Exercise(user_id=user.id, text=vorlage.text, math_expression=vorlage.math_expression,
                       library_id=vorlage.id)
