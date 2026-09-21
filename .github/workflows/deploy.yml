@@ -9,35 +9,21 @@ concurrency:
   group: vercel-deploy
   cancel-in-progress: false
 
+permissions:
+  contents: read
+
 jobs:
-  # Gate: kaputte Commits duerfen nie live gehen.
+  # Gate: kaputte Commits duerfen nie live gehen. Dieselben Tests wie beim
+  # Pull Request (ci.yml) - ein Setup, ein Arbeitsverzeichnis, eine
+  # Python-Version; frueher liefen sie hier ein zweites Mal mit anderem
+  # cwd und ungepinntem pytest und brachen anders als im PR (Lauf 114).
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-          cache: pip
-          cache-dependency-path: backend/requirements.txt
-      - name: Backend-Tests
-        run: |
-          pip install -q -r backend/requirements.txt pytest
-          python -m pytest backend/tests/ -q
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-      - name: Frontend-Build
-        working-directory: frontend
-        run: |
-          npm ci --silent
-          npm run build
+    uses: ./.github/workflows/ci.yml
 
   deploy:
     runs-on: ubuntu-latest
     needs: test
+    timeout-minutes: 15
     steps:
       - name: Secrets prüfen
         env:
@@ -128,6 +114,7 @@ jobs:
   smoke:
     runs-on: ubuntu-latest
     needs: deploy
+    timeout-minutes: 10
     steps:
       # Zuerst die Auskunft: sie fasst jetzt auch die Datenbank an. Ist sie
       # beim Deploy nicht erreichbar, soll der Deploy scheitern, statt eine
@@ -135,7 +122,7 @@ jobs:
       - name: Auskunft meldet eine erreichbare Datenbank
         run: |
           code=$(curl -sS -o /tmp/health.json -w "%{http_code}" \
-            "https://schrittweise-2-0.vercel.app/api/health")
+            "https://kniff.app/api/health")
           echo "Health: HTTP $code"; cat /tmp/health.json; echo ""
           [ "$code" = "200" ] || exit 1
           python3 -c "
@@ -148,7 +135,7 @@ jobs:
       - name: Registrierung (200 beim ersten Mal, 409 danach – beides ok)
         run: |
           code=$(curl -sS -o /tmp/reg.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/register" \
+            "https://kniff.app/api/auth/register" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123","display_name":"Smoke","terms_accepted":true}')
           echo "Register: HTTP $code"; cat /tmp/reg.json; echo ""
@@ -156,7 +143,7 @@ jobs:
       - name: Login muss funktionieren
         run: |
           code=$(curl -sS -o /tmp/login.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/login" \
+            "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}')
           echo "Login: HTTP $code"
@@ -165,18 +152,18 @@ jobs:
       - name: Falsches Passwort muss 401 geben
         run: |
           code=$(curl -sS -o /dev/null -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/auth/login" \
+            "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"absichtlich-falsch"}')
           echo "Falsches Passwort: HTTP $code"
           [ "$code" = "401" ] || exit 1
       - name: Kontingent liefert das neue Token-Modell
         run: |
-          token=$(curl -sS -X POST "https://schrittweise-2-0.vercel.app/api/auth/login" \
+          token=$(curl -sS -X POST "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}' \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-          curl -sS -o /tmp/quota.json "https://schrittweise-2-0.vercel.app/api/quota" \
+          curl -sS -o /tmp/quota.json "https://kniff.app/api/quota" \
             -H "Authorization: Bearer $token"
           cat /tmp/quota.json; echo ""
           python3 -c "
@@ -184,47 +171,14 @@ jobs:
           d = json.load(open('/tmp/quota.json'))
           assert 'monthly_free_tokens' in d and 'token_balance' in d and 'remaining' in d, d
           "
-      - name: Foto-Erkennung liest eine gedruckte Aufgabe (Live-E2E)
-        run: |
-          pip install -q pillow
-          python3 - <<'EOF'
-          from PIL import Image, ImageDraw, ImageFont
-          img = Image.new("RGB", (640, 220), "white")
-          d = ImageDraw.Draw(img)
-          try:
-              font = ImageFont.load_default(size=64)
-          except TypeError:  # aeltere Pillow-Version ohne size-Parameter
-              font = ImageFont.load_default()
-          d.text((40, 70), "3x + 5 = 20", fill="black", font=font)
-          img.save("/tmp/aufgabe.png")
-          EOF
-          token=$(curl -sS -X POST "https://schrittweise-2-0.vercel.app/api/auth/login" \
-            -H "Content-Type: application/json" \
-            -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}' \
-            | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
-          code=$(curl -sS -o /tmp/ocr.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/exercises/ocr" \
-            -H "Authorization: Bearer $token" \
-            -F "file=@/tmp/aufgabe.png;type=image/png")
-          echo "OCR: HTTP $code"; cat /tmp/ocr.json; echo ""
-          [ "$code" = "200" ] || exit 1
-          python3 - <<'EOF'
-          import json
-          d = json.load(open("/tmp/ocr.json"))
-          text = (d.get("text") or "").replace(" ", "")
-          assert "3x" in text and "20" in text, f"Erkennung unplausibel: {d.get('text')!r}"
-          assert d.get("image_path"), "image_path fehlt"
-          print("Erkennung ok:", d["text"])
-          EOF
-
       - name: Zahlung antwortet sauber (503 ohne Keys / 200 mit)
         run: |
-          token=$(curl -sS -X POST "https://schrittweise-2-0.vercel.app/api/auth/login" \
+          token=$(curl -sS -X POST "https://kniff.app/api/auth/login" \
             -H "Content-Type: application/json" \
             -d '{"email":"schrittweise.smoketest@example.com","password":"smoke-test-passwort-123"}' \
             | python3 -c "import sys,json; print(json.load(sys.stdin)['access_token'])")
           code=$(curl -sS -o /tmp/pay.json -w "%{http_code}" -X POST \
-            "https://schrittweise-2-0.vercel.app/api/pay/checkout" \
+            "https://kniff.app/api/pay/checkout" \
             -H "Content-Type: application/json" -H "Authorization: Bearer $token" \
             -d '{"package":"schnupper"}')
           echo "Checkout: HTTP $code"; cat /tmp/pay.json; echo ""

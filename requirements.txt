@@ -3,7 +3,7 @@
 # darum steht die Liste hier ausgeschrieben – bei Änderungen BEIDE Dateien
 # synchron halten (backend/requirements.txt ist die Referenz für lokal/CI/Docker).
 fastapi==0.115.6
-uvicorn[standard]>=0.34,<1
+uvicorn>=0.34,<1  # ohne [standard]: uvloop/httptools/watchfiles braucht weder Vercel noch lokal
 sqlalchemy>=2.0.41,<2.1
 pydantic>=2.12,<3
 pydantic-settings>=2.7,<3

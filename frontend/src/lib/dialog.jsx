@@ -5,7 +5,7 @@ import { useLang } from "./i18n.jsx";
 //
 // Vorher standen an elf Stellen `window.confirm` / `window.alert` /
 // `window.prompt`. Das sind Fenster des BROWSERS: sie haengen oben am
-// Bildschirmrand, tragen den Vorspann «schrittweise-2-0.vercel.app sagt:»,
+// Bildschirmrand, tragen den Vorspann «kniff.app sagt:»,
 // benutzen die Schrift des Betriebssystems und ignorieren jede Gestaltung.
 // Dazu kommen drei harte Grenzen, die uns hier wirklich weh taten:
 //
