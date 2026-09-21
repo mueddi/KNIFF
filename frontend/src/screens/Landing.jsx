@@ -157,8 +157,12 @@ function DemoChat() {
   const [tippt, setTippt] = useState(false);
   const [stufe, setStufe] = useState(0);
   const listeRef = useRef(null);
-  const aktuell = DREHBUCH[verlauf[verlauf.length - 1].knoten];
-  const fertig = !tippt && aktuell?.ende;
+  // Die Antwortknoepfe haengen am letzten TUTOR-Eintrag. Waehrend Kniff
+  // «tippt», ist der letzte Eintrag die eigene Antwort ohne Kapitel – das
+  // stuerzte beim ersten Klick ab.
+  const letzterTutor = [...verlauf].reverse().find((e) => e.rolle === "tutor");
+  const aktuell = DREHBUCH[letzterTutor?.knoten] || DREHBUCH.start;
+  const fertig = !tippt && aktuell.ende;
 
   useEffect(() => {
     // beim Sprachwechsel von vorn, sonst mischen sich die Sprachen
