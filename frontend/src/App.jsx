@@ -15,6 +15,7 @@ import Preise from "./screens/Preise.jsx";
 import Einstellungen from "./screens/Einstellungen.jsx";
 import Kosten from "./screens/Kosten.jsx";
 import Stoerungen from "./screens/Stoerungen.jsx";
+import FeedbackAdmin from "./screens/FeedbackAdmin.jsx";
 import Nutzer from "./screens/Nutzer.jsx";
 import ParentDashboard from "./screens/ParentDashboard.jsx";
 import { Impressum, Datenschutz, Agb } from "./screens/Rechtliches.jsx";
@@ -110,6 +111,7 @@ export default function App() {
         <Route path="einstellungen" element={<Einstellungen />} />
         <Route path="kosten" element={<RequireAdmin><Kosten /></RequireAdmin>} />
         <Route path="stoerungen" element={<RequireAdmin><Stoerungen /></RequireAdmin>} />
+        <Route path="rueckmeldungen" element={<RequireAdmin><FeedbackAdmin /></RequireAdmin>} />
         <Route path="nutzer" element={<RequireAdmin><Nutzer /></RequireAdmin>} />
         <Route path="elternansicht" element={<RequireAdmin><ParentDashboard preview /></RequireAdmin>} />
       </Route>

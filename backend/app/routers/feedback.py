@@ -97,7 +97,7 @@ def create_feedback(payload: FeedbackCreate, user: User = Depends(get_current_us
 
             send_alert_mail(f"Problem gemeldet: {KATEGORIE_LABEL.get(eintrag.category, eintrag.category)}",
                             f"Von Konto {user.id} auf {payload.page or '?'}\n\n{text or '(kein Text)'}\n\n"
-                            f"{eintrag.context or ''}\n\nAdmin → Stoerungen → Von Schuelern gemeldet.")
+                            f"{eintrag.context or ''}\n\nAdmin → Rueckmeldungen (alle Feedbacks) oder Stoerungen → Von Schuelern gemeldet.")
         except Exception:
             log.exception("Mail zur Problem-Meldung fehlgeschlagen")
     return {"ok": True, "id": eintrag.id}
