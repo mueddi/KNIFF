@@ -80,6 +80,7 @@ export default function Landing() {
   const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
   const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
   const jahrProMonat = ((preise?.jahr_rappen ?? 8900) / 12 / 100).toFixed(2);
+  const tokensMonat = preise?.plus_tokens_monat ?? 600;
 
   const langBtn = (l) => ({ border: "none", background: "transparent", fontSize: 13, fontWeight: 700, cursor: "pointer", color: lang === l ? INDIGO : TEXT_4, padding: "2px 4px" });
 
@@ -128,8 +129,8 @@ export default function Landing() {
       a: t("Ja. «Ich verstahs nöd» oder «chasch mir helfe» versteht Kniff selbstverständlich. Geantwortet wird auf Schweizer Hochdeutsch – oder auf Englisch, wenn du die App auf Englisch stellst.", "Yes. Swiss German like “ich verstahs nöd” or “chasch mir helfe” is understood as a matter of course. Kniff replies in Swiss Standard German – or in English if you set the app to English.") },
     ...(abo ? [
       { q: t("Was kostet Kniff?", "What does Kniff cost?"),
-        a: t(`Die ersten ${probe} Aufgaben sind geschenkt – ohne Zahlungsangaben. Danach kostet ${plusName} CHF ${monat} im Monat oder ${jahr}.– im Jahr pro Kind, mit so vielen Aufgaben, wie dein Kind üben will. Jederzeit kündbar, das Abo läuft dann bis zum Ende der bezahlten Zeit.`,
-             `The first ${probe} tasks are on us – no payment details. After that ${plusName} costs CHF ${monat} a month or ${jahr}.– a year per child, with as many tasks as your child wants to practise. Cancel anytime; the subscription then runs until the end of the paid period.`) },
+        a: t(`Die ersten ${probe} Aufgaben sind geschenkt – ohne Zahlungsangaben. Danach kostet ${plusName} CHF ${monat} im Monat oder ${jahr}.– im Jahr pro Kind. Darin sind ${tokensMonat} Tokens im Monat enthalten, das reicht für rund 35 bis 40 Aufgaben; unverbrauchte Tokens bleiben, und wer mehr braucht, kauft ein Paket dazu. Jederzeit kündbar, das Abo läuft dann bis zum Ende der bezahlten Zeit.`,
+             `The first ${probe} tasks are on us – no payment details. After that ${plusName} costs CHF ${monat} a month or ${jahr}.– a year per child. That includes ${tokensMonat} tokens a month, enough for around 35 to 40 tasks; unused tokens carry over, and if you need more you buy a package. Cancel anytime; the subscription then runs until the end of the paid period.`) },
       { q: t("Braucht mein Kind eine Kreditkarte?", "Does my child need a credit card?"),
         a: t(`Nein. Die Probe braucht keine Zahlungsangaben. ${plusName} schliessen Eltern über eine sichere Stripe-Seite ab, mit Karte oder TWINT – direkt aus der Elternansicht für ihr Kind.`,
              `No. The trial needs no payment details. Parents subscribe to ${plusName} through a secure Stripe page with a card or TWINT – straight from the parent view for their child.`) },
@@ -312,9 +313,9 @@ export default function Landing() {
         {abo ? (
           <>
         <Eyebrow>{t("Was es kostet", "What it costs")}</Eyebrow>
-        <H2>{t("Gratis probieren. Dann so viel üben, wie du willst.", "Try it for free. Then practise as much as you like.")}</H2>
-        <Lead>{t(`Die ersten ${probe} Aufgaben sind geschenkt. Danach kostet ${plusName} weniger als eine Nachhilfestunde im Monat – pro Kind, jederzeit kündbar.`,
-                 `The first ${probe} tasks are on us. After that ${plusName} costs less than one tutoring lesson a month – per child, cancel anytime.`)}</Lead>
+        <H2>{t("Gratis probieren. Dann weiterüben mit Kniff Plus.", "Try it for free. Then keep practising with Kniff Plus.")}</H2>
+        <Lead>{t(`Die ersten ${probe} Aufgaben sind geschenkt. Danach kostet ${plusName} weniger als eine Nachhilfestunde im Monat – mit ${tokensMonat} Tokens im Monat, pro Kind, jederzeit kündbar.`,
+                 `The first ${probe} tasks are on us. After that ${plusName} costs less than one tutoring lesson a month – with ${tokensMonat} tokens a month, per child, cancel anytime.`)}</Lead>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, alignItems: "stretch" }} className="landing-hero">
           <div style={{ ...card, background: "#f8f8ff", border: "1px solid #e0e2fb" }}>
             <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".06em", marginBottom: 6 }}>{t("PROBE", "TRIAL")}</div>
@@ -342,7 +343,9 @@ export default function Landing() {
               </div>
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, color: "#e5e7ef" }}>
-              <Badge color="#e5e7ef">{t("So viel üben, wie dein Kind will – Foto, Stift, Aufgabensammlung, Probeprüfungen", "Practise as much as your child wants – photo, pen, task collection, mock exams")}</Badge>
+              <Badge color="#e5e7ef">{t(`${tokensMonat} Tokens im Monat – rund 35 bis 40 Aufgaben, unverbrauchte bleiben`, `${tokensMonat} tokens a month – around 35 to 40 tasks, unused ones carry over`)}</Badge>
+              <Badge color="#e5e7ef">{t("Mehr üben? Token-Pakete dazu, ab CHF 2.–", "Practise more? Add token packages from CHF 2.–")}</Badge>
+              <Badge color="#e5e7ef">{t("Foto, Stift, Aufgabensammlung, Probeprüfungen", "Photo, pen, task collection, mock exams")}</Badge>
               <Badge color="#e5e7ef">{t("Jederzeit kündbar, läuft bis zum Ende der bezahlten Zeit", "Cancel anytime, runs until the end of the paid period")}</Badge>
               <Badge color="#e5e7ef">{t("Eltern schliessen ab: Stripe, Karte oder TWINT", "Parents subscribe: Stripe, card or TWINT")}</Badge>
               <Badge color="#e5e7ef">{t("Schulen: Klassen-Plan mit unbegrenzten Aufgaben auf Anfrage", "Schools: class plan with unlimited tasks on request")}</Badge>

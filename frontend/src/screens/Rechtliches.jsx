@@ -295,6 +295,7 @@ export function Agb() {
   const probe = preise?.trial_tasks ?? 10;
   const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
   const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
+  const tokensMonat = preise?.plus_tokens_monat ?? 600;
   return (
     <Shell title={t("AGB", "Terms of Use")}>
       {lang === "en" ? (
@@ -314,19 +315,24 @@ export function Agb() {
                 Kniff is an AI-powered maths tutor for middle school, secondary school
                 and high school (Gymnasium). Every account can practise its first {probe}{" "}
                 tasks free of charge (trial, once per account, no payment details).
-                After that, {plusName} is required: one subscription per child that
-                allows practising as much as the child wants – photo, pen, task
-                collection and mock exams included. Fair use: with exceptionally heavy
-                use far beyond everyday learning, the account may pause until the start
-                of the next month. Token balances bought earlier remain usable after the
-                trial and are deducted as before.
+                After that, {plusName} is required: one subscription per child. Each
+                paid subscription invoice credits {tokensMonat} tokens to the account
+                (yearly subscription: twelve months at once); 1 token = 1 Swiss centime
+                (Rappen) of AI computation, a task usually takes 10 to 20 tokens. Every
+                tutor response deducts tokens from the balance. Unused tokens carry over
+                and do not expire. When the balance is empty, practising pauses until
+                the next credit or until a token package is bought (section 2). Photo,
+                pen, task collection and mock exams are included. Token balances bought
+                earlier remain usable and are deducted as before.
               </P>
 
               <H>2. Prices</H>
               <P>
-                {plusName}: CHF {monat} per month or CHF {jahr}.– per year, per child.
-                All prices in Swiss francs; no VAT is charged. School and class plans on
-                request. Price changes are announced by e-mail at least 30 days in
+                {plusName}: CHF {monat} per month or CHF {jahr}.– per year, per child,
+                including {tokensMonat} tokens per month. Token packages for subscribers
+                (one-time, never expiring): CHF 2.– for 200, CHF 9.– for 900, CHF 19.– for
+                1900 tokens. All prices in Swiss francs; no VAT is charged. School and
+                class plans on request. Price changes are announced by e-mail at least 30 days in
                 advance and apply from the next renewal; until then the subscription can
                 be cancelled.
               </P>
@@ -430,18 +436,23 @@ export function Agb() {
                 Kniff ist ein KI-gestützter Mathe-Lern-Tutor für Mittelstufe, Oberstufe
                 und Gymnasium. Jedes Konto kann die ersten {probe} Aufgaben gratis üben
                 (Probe, einmalig pro Konto, ohne Zahlungsangaben). Danach braucht es{" "}
-                {plusName}: ein Abo pro Kind, mit dem so viel geübt werden kann, wie das
-                Kind will – Foto, Stift, Aufgabensammlung und Probeprüfungen inbegriffen.
-                Fair Use: Bei aussergewöhnlich hoher Nutzung weit über einem normalen
-                Lernalltag kann das Konto bis zum Monatsanfang pausieren. Früher gekaufte
-                Token-Guthaben bleiben nach der Probe nutzbar und werden wie bisher
-                abgebucht.
+                {plusName}: ein Abo pro Kind. Jede bezahlte Abo-Rechnung schreibt dem
+                Konto {tokensMonat} Tokens gut (Jahresabo: zwölf Monate auf einmal);
+                1 Token entspricht 1 Rappen KI-Leistung, eine Aufgabe braucht meist 10 bis
+                20 Tokens. Jede Tutor-Antwort bucht Tokens vom Guthaben ab. Unverbrauchte
+                Tokens bleiben erhalten und verfallen nicht. Ist das Guthaben leer, pausiert
+                das Üben bis zur nächsten Gutschrift oder bis zum Kauf eines Token-Pakets
+                (Ziffer 2). Foto, Stift, Aufgabensammlung und Probeprüfungen sind
+                inbegriffen. Früher gekaufte Token-Guthaben bleiben nutzbar und werden wie
+                bisher abgebucht.
               </P>
 
               <H>2. Preise</H>
               <P>
                 {plusName}: CHF {monat} pro Monat oder CHF {jahr}.– pro Jahr, jeweils pro
-                Kind. Alle Preise in Schweizer Franken; es wird keine Mehrwertsteuer
+                Kind, inklusive {tokensMonat} Tokens pro Monat. Token-Pakete für Abonnenten
+                (einmalig, verfallen nie): CHF 2.– für 200, CHF 9.– für 900, CHF 19.– für
+                1900 Tokens. Alle Preise in Schweizer Franken; es wird keine Mehrwertsteuer
                 erhoben. Schul- und Klassenpläne auf Anfrage. Preisänderungen werden
                 mindestens 30 Tage im Voraus per E-Mail angekündigt und gelten ab der
                 nächsten Verlängerung; bis dahin kann gekündigt werden.

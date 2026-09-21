@@ -253,25 +253,23 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
           {quotaOut && (() => {
             const grund = typeof quotaOut === "string" ? quotaOut : (shell.quota?.abo_enabled ? "trial" : "guthaben");
             const plusName = shell.quota?.plus_name || "Kniff Plus";
-            const titel = grund === "fairuse" ? t("Wow – riesig viel geübt diesen Monat 🎉", "Wow – a huge amount of practice this month 🎉")
+            const titel = grund === "plus_leer" ? t("Deine Tokens sind aufgebraucht ⚡", "Your tokens are used up ⚡")
               : grund === "trial" ? t("Deine Gratis-Aufgaben sind aufgebraucht 🙌", "Your free tasks are used up 🙌")
                 : t("Dein Guthaben ist aufgebraucht 🙌", "Your balance is used up 🙌");
-            const text = grund === "fairuse" ? t("Ab dem 1. geht es weiter. Bis dahin: Pause verdient.", "It continues on the 1st. Until then: you've earned a break.")
-              : grund === "trial" ? t(`Mit ${plusName} übst du weiter – so viel du willst, jederzeit kündbar.`, `With ${plusName} you keep practising – as much as you like, cancel anytime.`)
+            const text = grund === "plus_leer" ? t("Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Top up a token package – or wait for your subscription's next credit.")
+              : grund === "trial" ? t(`Mit ${plusName} übst du weiter – jederzeit kündbar.`, `With ${plusName} you keep practising – cancel anytime.`)
                 : t("Du hast diesen Monat fleissig geübt! Mit einem Token-Paket geht es sofort weiter – oder du wartest auf den nächsten Monat (dann gibt es wieder 50 Gratis-Tokens).", "You've practiced a lot this month! With a token package you can continue right away – or wait for next month (another 50 free tokens).");
             return (
               <div style={{ background: "#fdf3e6", border: "1px solid #f2ddb8", borderRadius: 14, padding: "14px 16px", marginBottom: 14 }}>
                 <div style={{ fontSize: 14, fontWeight: 700, color: "#a05c12", marginBottom: 4 }}>{titel}</div>
-                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.55, marginBottom: grund === "fairuse" ? 0 : 12 }}>{text}</div>
-                {grund !== "fairuse" && (
-                  <button
-                    onClick={() => { onClose(); nav("/app/preise"); }}
-                    className="btn-primary"
-                    style={{ fontSize: 13, borderRadius: 10, padding: "10px 18px", border: "none" }}
-                  >
-                    {grund === "trial" ? t(`${plusName} aktivieren →`, `Activate ${plusName} →`) : t("Tokens laden →", "Top up tokens →")}
-                  </button>
-                )}
+                <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.55, marginBottom: 12 }}>{text}</div>
+                <button
+                  onClick={() => { onClose(); nav("/app/preise"); }}
+                  className="btn-primary"
+                  style={{ fontSize: 13, borderRadius: 10, padding: "10px 18px", border: "none" }}
+                >
+                  {grund === "trial" ? t(`${plusName} aktivieren →`, `Activate ${plusName} →`) : grund === "plus_leer" ? t("Tokens nachladen →", "Top up tokens →") : t("Tokens laden →", "Top up tokens →")}
+                </button>
               </div>
             );
           })()}

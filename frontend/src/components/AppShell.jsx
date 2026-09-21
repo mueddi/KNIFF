@@ -215,16 +215,18 @@ export default function AppShell() {
             ) : quota?.abo_enabled ? (
               // Kniff Plus: in Aufgaben denken, nicht in Tokens
               <div onClick={() => nav(quota.stufe === "plus" ? "/app/einstellungen?tab=abo" : "/app/preise")} style={{ cursor: "pointer" }}>
-                <div style={{ fontSize: 10, color: quota.stufe === "gesperrt" ? "#d9573a" : "#9aa0ab", marginBottom: 4 }}>
+                <div style={{ fontSize: 10, color: quota.stufe === "gesperrt" || (quota.stufe === "plus" && quota.token_balance <= 0) ? "#d9573a" : "#9aa0ab", marginBottom: 4 }}>
                   {quota.stufe === "plus"
-                    ? `✨ ${quota.plus_name}${quota.abo_gekuendigt ? ` · ${t("läuft aus", "ending")}` : ""}`
+                    ? (quota.token_balance > 0
+                        ? `✨ ${quota.plus_name} · ${quota.token_balance} Tokens${quota.abo_gekuendigt ? ` · ${t("läuft aus", "ending")}` : ""}`
+                        : t(`✨ ${quota.plus_name} · 0 Tokens – nachladen?`, `✨ ${quota.plus_name} · 0 tokens – top up?`))
                     : quota.stufe === "trial"
                       ? t(`🎁 Noch ${quota.trial_left} von ${quota.trial_tasks} Gratis-Aufgaben`, `🎁 ${quota.trial_left} of ${quota.trial_tasks} free tasks left`)
                       : quota.stufe === "guthaben"
                         ? t(`⚡ Guthaben: ${quota.token_balance} Tokens`, `⚡ Balance: ${quota.token_balance} tokens`)
                         : t(`⚡ Probe aufgebraucht – ${quota.plus_name}?`, `⚡ Trial used up – ${quota.plus_name}?`)}
                 </div>
-                {quota.stufe === "trial" && (
+                {(quota.stufe === "trial" || quota.stufe === "plus") && (
                   <div style={{ height: 5, borderRadius: 999, background: "#e7e8ee", overflow: "hidden" }}>
                     <div style={{ width: `${quotaPct}%`, height: "100%", background: quotaPct >= 90 ? "#d9573a" : "#cdd2db" }} />
                   </div>

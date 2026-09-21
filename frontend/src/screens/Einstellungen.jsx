@@ -227,6 +227,18 @@ function AboTab({ onBuy }) {
     }
   }
 
+  async function nachladen(paket) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await api.post("/api/pay/tokens", { paket });
+      window.location.href = res.url; // Stripe-Bezahlseite
+    } catch (e) {
+      setNote({ type: "error", text: e.message });
+      setBusy(false);
+    }
+  }
+
   if (!quota) return <div style={{ fontSize: 14, color: "#9aa0ab" }}>{t("lädt …", "loading …")}</div>;
 
   const hinweis = note && (
@@ -252,11 +264,20 @@ function AboTab({ onBuy }) {
                 : t(`${quota.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar.`,
                     `${quota.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime.`)}
             </div>
-            {quota.percent_used >= 80 && (
-              <div style={{ fontSize: 12.5, color: "#a05c12", marginTop: 10 }}>
-                {t("Du hast diesen Monat sehr viel geübt – ab dem 1. geht es unbegrenzt weiter.", "You practised a lot this month – from the 1st it continues without limit.")}
-              </div>
-            )}
+            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 12, color: quota.token_balance > 0 ? "#1a1c22" : "#d9573a" }}>
+              ⚡ {t(`Guthaben: ${quota.token_balance} Tokens`, `Balance: ${quota.token_balance} tokens`)}
+            </div>
+            <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 4 }}>
+              {t(`Jede Abo-Rechnung schreibt ${quota.plus_tokens_monat} Tokens gut; unverbrauchte bleiben. Reicht es nicht, lad ein Paket nach:`, `Each subscription invoice credits ${quota.plus_tokens_monat} tokens; unused ones carry over. If it is not enough, top up a package:`)}
+            </div>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
+              {(quota.pakete || []).map((p) => (
+                <button key={p.key} onClick={() => nachladen(p.key)} disabled={busy}
+                  style={{ borderRadius: 11, padding: "9px 14px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "1px solid #e7e8ee", background: "#fff", color: "#1a1c22", opacity: busy ? 0.6 : 1 }}>
+                  {p.tokens} Tokens · CHF {chf(p.rappen)}
+                </button>
+              ))}
+            </div>
             <button onClick={() => umstellen(!quota.abo_gekuendigt)} disabled={busy}
               style={{ marginTop: 16, borderRadius: 11, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "1px solid #e7e8ee", background: "#fff", color: quota.abo_gekuendigt ? "#4f46e5" : "#6b7280", opacity: busy ? 0.6 : 1 }}>
               {busy ? t("Moment …", "One sec …") : quota.abo_gekuendigt ? t("Kündigung zurücknehmen", "Undo cancellation") : t("Abo kündigen", "Cancel subscription")}
@@ -286,7 +307,7 @@ function AboTab({ onBuy }) {
             <div style={{ fontSize: 14, fontWeight: 700, color: "#c9ccf6", marginBottom: 6 }}>{quota.plus_name}</div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em" }}>CHF {chf(quota.preise.monat)} <span style={{ fontSize: 13, color: "#9aa0ab", fontWeight: 500 }}>{t("im Monat", "per month")}</span></div>
             <div style={{ fontSize: 12.5, color: "#9aa0ab", marginBottom: 12 }}>{t(`oder CHF ${chf(quota.preise.jahr)} im Jahr · pro Kind · jederzeit kündbar`, `or CHF ${chf(quota.preise.jahr)} per year · per child · cancel anytime`)}</div>
-            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{t("So viel üben, wie du willst – Foto, Stift, Aufgabensammlung, Probeprüfungen, Elternansicht.", "Practise as much as you like – photo, pen, task collection, mock exams, parent view.")}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{t(`${quota.plus_tokens_monat} Tokens im Monat (rund 35 bis 40 Aufgaben), unverbrauchte bleiben – Foto, Stift, Aufgabensammlung, Probeprüfungen, Elternansicht.`, `${quota.plus_tokens_monat} tokens a month (around 35 to 40 tasks), unused ones carry over – photo, pen, task collection, mock exams, parent view.`)}</div>
             <button onClick={onBuy} className="btn-primary" style={{ padding: "11px 20px", borderRadius: 11, fontSize: 14, border: "none" }}>
               {t(`${quota.plus_name} aktivieren →`, `Activate ${quota.plus_name} →`)}
             </button>

@@ -183,6 +183,18 @@ function PlusBox({ child, onChanged }) {
     }
   }
 
+  async function nachladen(paket) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post("/api/pay/tokens", { paket, student_id: child.student_id });
+      window.location.href = r.url;
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
   async function umstellen(kuendigen) {
     if (kuendigen) {
       const ja = await dialog.bestaetigen({
@@ -218,6 +230,18 @@ function PlusBox({ child, onChanged }) {
               ? t(`Gekündigt – aktiv bis ${datum}, danach keine Verlängerung.`, `Cancelled – active until ${datum}, no renewal afterwards.`)
               : t(`${q.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar`, `${q.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime`)}
           </div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8, color: q.token_balance > 0 ? "#1a1c22" : "#d9573a" }}>
+            ⚡ {t(`Guthaben: ${q.token_balance} Tokens`, `Balance: ${q.token_balance} tokens`)}
+            <span style={{ fontWeight: 400, color: "#6b7280" }}> · {t(`${q.plus_tokens_monat} pro Monat inklusive, unverbrauchte bleiben`, `${q.plus_tokens_monat} per month included, unused ones carry over`)}</span>
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+            {(q.pakete || []).map((p) => (
+              <button key={p.key} onClick={() => nachladen(p.key)} disabled={busy}
+                style={{ ...knopf, padding: "7px 11px", fontSize: 12, border: "1px solid #e7e8ee", background: "#fff", color: "#1a1c22", fontWeight: 600 }}>
+                +{p.tokens} Tokens · CHF {chf(p.rappen)}
+              </button>
+            ))}
+          </div>
           {err && <div style={{ fontSize: 12.5, color: "#c0392b", marginTop: 4 }}>{err}</div>}
         </div>
         <button onClick={() => umstellen(!q.abo_gekuendigt)} disabled={busy}
@@ -237,7 +261,7 @@ function PlusBox({ child, onChanged }) {
       <div style={{ flex: "1 1 260px" }}>
         <div style={{ fontSize: 12.5, color: "#c9ccf6" }}>{stand}</div>
         <div style={{ fontSize: 15, fontWeight: 700, marginTop: 4 }}>
-          {t(`${name} für ${kind}: so viel üben, wie ${kind} will.`, `${name} for ${kind}: practise as much as ${kind} likes.`)}
+          {t(`${name} für ${kind}: ${q.plus_tokens_monat} Tokens im Monat, unverbrauchte bleiben.`, `${name} for ${kind}: ${q.plus_tokens_monat} tokens a month, unused ones carry over.`)}
         </div>
         <div style={{ fontSize: 12, color: "#9aa0ab", marginTop: 3 }}>{t("Karte oder TWINT · jederzeit kündbar · die Rechnung geht an dich", "Card or TWINT · cancel anytime · the invoice goes to you")}</div>
         {err && <div style={{ fontSize: 12.5, color: "#f7b2a3", marginTop: 4 }}>{err}</div>}
