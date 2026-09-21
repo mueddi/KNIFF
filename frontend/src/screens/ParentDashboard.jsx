@@ -1,10 +1,11 @@
 import { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { useLang, gradeLabel } from "../lib/i18n.jsx";
 import { ChildDashboard } from "./Eltern.jsx";
-import { DeleteAccount, PasswordTab } from "./Einstellungen.jsx";
+import { DeleteAccount, PasswordTab, chf } from "./Einstellungen.jsx";
+import { useDialog } from "../lib/dialog.jsx";
 
 // Eigenständige Eltern-Ansicht (Rolle parent). Kein Schüler-Sidebar.
 // preview: Admin-Vorschau – zeigt dieselbe Ansicht mit den EIGENEN
@@ -19,12 +20,25 @@ export default function ParentDashboard({ preview = false }) {
   const [error, setError] = useState(null);
   const [active, setActive] = useState(0);
   const [kontoOpen, setKontoOpen] = useState(false);
+  const [params] = useSearchParams();
+  const [zahlungNote, setZahlungNote] = useState(null);
 
   const load = () => (preview
     ? api.get("/api/parents/preview").then((d) => setChildren([d]))
     : api.get("/api/parents/children").then(setChildren)
   ).catch(() => setChildren([]));
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // Rueckkehr von der Stripe-Bezahlseite: der Webhook braucht evtl. 1–2 Sekunden.
+  useEffect(() => {
+    const z = params.get("zahlung");
+    if (z === "ok") {
+      setZahlungNote({ type: "ok", text: t("Zahlung erhalten – das Abo ist in wenigen Sekunden aktiv. 🎉", "Payment received – the subscription will be active in a few seconds. 🎉") });
+      const t1 = setTimeout(load, 2500);
+      const t2 = setTimeout(load, 8000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
+    if (z === "abbruch") setZahlungNote({ type: "error", text: t("Zahlung abgebrochen – es wurde nichts belastet.", "Payment cancelled – nothing was charged.") });
+  }, [params]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function redeem(e) {
     e?.preventDefault();
@@ -92,6 +106,12 @@ export default function ParentDashboard({ preview = false }) {
             <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 8 }}>
               <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em" }}>{child.student_display_name} · {gradeLabel(child.grade_level, lang)}</div>
             </div>
+            {zahlungNote && (
+              <div style={{ marginBottom: 14, fontSize: 13, borderRadius: 12, padding: "11px 16px", background: zahlungNote.type === "error" ? "#fdecec" : "#e8f6ec", color: zahlungNote.type === "error" ? "#c0392b" : "#1a7f3c", border: `1px solid ${zahlungNote.type === "error" ? "#f5cccc" : "#cde7d6"}` }}>
+                {zahlungNote.text}
+              </div>
+            )}
+            {!preview && <PlusBox child={child} onChanged={load} />}
             {child.shared ? (
               <ChildDashboard data={child} />
             ) : (
@@ -132,6 +152,103 @@ export default function ParentDashboard({ preview = false }) {
             <Link to="/agb" style={{ color: "#9aa0ab", textDecoration: "underline" }}>{t("AGB", "Terms")}</Link>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+
+// Kniff Plus aus der Elternansicht: Eltern zahlen, also schliessen sie das
+// Abo hier ab und kuendigen es hier – das Kind muss nichts tun.
+function PlusBox({ child, onChanged }) {
+  const { t, lang } = useLang();
+  const dialog = useDialog();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState(null);
+  const q = child.plus;
+  if (!q || !q.abo_enabled || q.unlimited || !child.student_id) return null;
+  const name = q.plus_name || "Kniff Plus";
+  const kind = child.student_display_name;
+  const datum = q.abo_bis ? new Date(q.abo_bis).toLocaleDateString(lang === "en" ? "en-GB" : "de-CH") : "";
+
+  async function kaufen(intervall) {
+    setBusy(true);
+    setErr(null);
+    try {
+      const r = await api.post("/api/pay/checkout", { intervall, student_id: child.student_id });
+      window.location.href = r.url; // weiter zur Stripe-Bezahlseite (Karte/TWINT)
+    } catch (e) {
+      setErr(e.message);
+      setBusy(false);
+    }
+  }
+
+  async function umstellen(kuendigen) {
+    if (kuendigen) {
+      const ja = await dialog.bestaetigen({
+        titel: t(`${name} für ${kind} kündigen?`, `Cancel ${name} for ${kind}?`),
+        text: t(`Das Abo läuft bis ${datum} weiter und verlängert sich danach nicht mehr. Bis dahin kannst du die Kündigung jederzeit zurücknehmen.`,
+                `The subscription stays active until ${datum} and will not renew afterwards. Until then you can undo the cancellation at any time.`),
+        bestaetigen: t("Kündigen", "Cancel subscription"),
+        gefahr: true,
+      });
+      if (!ja) return;
+    }
+    setBusy(true);
+    setErr(null);
+    try {
+      await api.post(kuendigen ? "/api/pay/abo/kuendigen" : "/api/pay/abo/weiter", { student_id: child.student_id });
+      onChanged?.();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const karte = { background: "#fff", border: "1px solid #e7e8ee", borderRadius: 16, padding: "16px 20px", marginBottom: 16, display: "flex", alignItems: "center", gap: 16, flexWrap: "wrap" };
+  const knopf = { borderRadius: 11, padding: "10px 16px", fontSize: 13, fontWeight: 700, cursor: "pointer", border: "none", opacity: busy ? 0.6 : 1 };
+  if (q.stufe === "plus") {
+    return (
+      <div style={karte}>
+        <div style={{ flex: "1 1 260px" }}>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "#1a7f3c" }}>✨ {name} {t("aktiv", "active")}</div>
+          <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 3 }}>
+            {q.abo_gekuendigt
+              ? t(`Gekündigt – aktiv bis ${datum}, danach keine Verlängerung.`, `Cancelled – active until ${datum}, no renewal afterwards.`)
+              : t(`${q.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar`, `${q.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime`)}
+          </div>
+          {err && <div style={{ fontSize: 12.5, color: "#c0392b", marginTop: 4 }}>{err}</div>}
+        </div>
+        <button onClick={() => umstellen(!q.abo_gekuendigt)} disabled={busy}
+          style={{ ...knopf, border: "1px solid #e7e8ee", background: "#fff", color: q.abo_gekuendigt ? "#4f46e5" : "#6b7280", fontWeight: 600 }}>
+          {q.abo_gekuendigt ? t("Kündigung zurücknehmen", "Undo cancellation") : t("Abo kündigen", "Cancel subscription")}
+        </button>
+      </div>
+    );
+  }
+  const stand = q.stufe === "trial"
+    ? t(`🎁 Noch ${q.trial_left} von ${q.trial_tasks} Gratis-Aufgaben`, `🎁 ${q.trial_left} of ${q.trial_tasks} free tasks left`)
+    : q.stufe === "guthaben"
+      ? t(`⚡ Guthaben aus einem früheren Kauf: ${q.token_balance} Tokens`, `⚡ Balance from an earlier purchase: ${q.token_balance} tokens`)
+      : t("Die Gratis-Aufgaben sind aufgebraucht", "The free tasks are used up");
+  return (
+    <div style={{ ...karte, background: "#1a1c22", color: "#fff", border: "none" }}>
+      <div style={{ flex: "1 1 260px" }}>
+        <div style={{ fontSize: 12.5, color: "#c9ccf6" }}>{stand}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, marginTop: 4 }}>
+          {t(`${name} für ${kind}: so viel üben, wie ${kind} will.`, `${name} for ${kind}: practise as much as ${kind} likes.`)}
+        </div>
+        <div style={{ fontSize: 12, color: "#9aa0ab", marginTop: 3 }}>{t("Karte oder TWINT · jederzeit kündbar · die Rechnung geht an dich", "Card or TWINT · cancel anytime · the invoice goes to you")}</div>
+        {err && <div style={{ fontSize: 12.5, color: "#f7b2a3", marginTop: 4 }}>{err}</div>}
+      </div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+        <button onClick={() => kaufen("monat")} disabled={busy} className="btn-primary" style={knopf}>
+          {t(`Monatlich CHF ${chf(q.preise.monat)}`, `Monthly CHF ${chf(q.preise.monat)}`)}
+        </button>
+        <button onClick={() => kaufen("jahr")} disabled={busy} style={{ ...knopf, background: "#fff", color: "#1a1c22" }}>
+          {t(`Jährlich CHF ${chf(q.preise.jahr)}`, `Yearly CHF ${chf(q.preise.jahr)}`)}
+        </button>
       </div>
     </div>
   );

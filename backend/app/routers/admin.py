@@ -20,6 +20,7 @@ from ..database import get_db
 from ..deps import require_admin
 from ..models import ApiUsage, Plan, TokenAdjustment, User
 from ..schemas import TokenAdjustRequest
+from ..services import quota as quota_service
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 log = logging.getLogger("schrittweise.admin")
@@ -375,6 +376,9 @@ def nutzer(q: str = Query("", max_length=100),
             "is_admin": u.is_admin,
             "email_verified": u.email_verified,
             "token_balance": u.token_balance,
+            "stufe": quota_service.stufe(db, u),
+            "abo_bis": u.abo_bis.isoformat() if u.abo_bis else None,
+            "abo_gekuendigt": bool(u.abo_gekuendigt),
             "free_used_tokens": u.free_used_tokens or 0,
             "monthly_free_tokens": settings.free_monthly_tokens,
             "verbraucht_tokens": int(verbrauch.get(u.id) or 0),

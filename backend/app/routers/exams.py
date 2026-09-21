@@ -84,7 +84,7 @@ def vorschau(topic_id: int, user: User = Depends(require_student),
                             lernziele=0, vorhandene_aufgaben=len(aufgaben),
                             guthaben=stand["remaining"])
     kosten = exam_service.kosten_schaetzung()
-    if not quota.can_use_ki(user):
+    if not quota.can_use_ki(db, user):
         return ExamVorschau(moeglich=False,
                             grund=i18n.t(i18n.lang_of(user), "Dein Guthaben ist aufgebraucht.", "Your balance is used up."),
                             lernziele=len(ziele), vorhandene_aufgaben=len(aufgaben),
@@ -105,9 +105,8 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
     if quota.blocked_unverified(user):
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             i18n.t(lang, "Bitte bestätige zuerst deine E-Mail-Adresse – schau in dein Postfach.", "Please confirm your email address first – check your inbox."))
-    if not quota.can_use_ki(user):
-        raise HTTPException(status.HTTP_402_PAYMENT_REQUIRED,
-                            i18n.t(lang, "Dein Guthaben ist aufgebraucht. Lad Tokens oder warte auf den nächsten Monat.", "Your balance is used up. Top up tokens or wait for next month."))
+    if not quota.can_use_ki(db, user):
+        raise quota.sperre(db, user, lang)
     if not [z for z in (topic.learning_goals or "").splitlines() if z.strip()]:
         raise HTTPException(status.HTTP_400_BAD_REQUEST,
                             i18n.t(lang, "Trag zuerst Lernziele beim Thema ein – daraus entsteht die Prüfung.", "Add learning goals to the topic first – the exam is built from them."))
@@ -139,10 +138,11 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
     # Pruefung entstehen, die niemand bezahlt hat (oder umgekehrt).
     if usage_out.get("usage") is not None:
         charged = 0
-        if not quota.is_unlimited(user):
+        kstufe = quota.stufe(db, user)
+        if kstufe != "school":
             charged = usage.charged_tokens(
                 usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
-            quota.charge(db, user.id, charged)
+            quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
         usage.record(db, "pruefung", usage_out.get("model", ""), usage_out["usage"],
                      user_id=user.id, charged=charged)
     db.commit()

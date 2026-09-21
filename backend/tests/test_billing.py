@@ -1,6 +1,8 @@
 """Nutzungsbasierte Verrechnung: 1 Token = 1 Rappen, Abbuchung pro KI-Antwort."""
+from datetime import datetime, timedelta
+
 from app.database import SessionLocal
-from app.models import ApiUsage, User
+from app.models import ApiUsage, Message, MessageRole, User
 from app.services.quota import can_use_ki, charge, current_month, quota_state
 from app.services.usage import charged_tokens
 
@@ -20,6 +22,11 @@ def _user(email: str, **fields):
 def _fresh(email: str) -> User:
     with SessionLocal() as db:
         return db.query(User).filter(User.email == email).one()
+
+
+def _can(u: User) -> bool:
+    with SessionLocal() as db:
+        return can_use_ki(db, u)
 
 
 # ---- charged_tokens: Rappen-Mathe mit Marge ----
@@ -68,7 +75,7 @@ def test_charge_monats_rollover(client):
     _user("mia@test.ch", token_balance=0, free_used_tokens=50, free_month="2020-01")
 
     # Neuer Monat: Gratis-Kontingent wieder da, sowohl lesend ...
-    assert can_use_ki(_fresh("mia@test.ch")) is True
+    assert _can(_fresh("mia@test.ch")) is True
     with SessionLocal() as db:
         state = quota_state(db, _fresh("mia@test.ch"))
     assert state["free_used_tokens"] == 0
@@ -87,7 +94,7 @@ def test_charge_monats_rollover(client):
 def test_charge_free_month_null_zaehlt_als_neuer_monat(client):
     register_pw(client, "mia@test.ch")
     _user("mia@test.ch", token_balance=0, free_used_tokens=50, free_month=None)
-    assert can_use_ki(_fresh("mia@test.ch")) is True
+    assert _can(_fresh("mia@test.ch")) is True
 
 
 # ---- HTTP-Verhalten ----
@@ -159,3 +166,36 @@ def test_chat_frequenz_bremse(client):
             "".join(r.iter_text())
     r = client.post(f"/api/attempts/{aid}/chat", headers=headers, json={"text": "eine zu viel"})
     assert r.status_code == 429
+
+
+# ---- Kniff Plus: neue Spalten haben unschaedliche Standardwerte ----
+
+def test_neue_abo_spalten_default(client):
+    register_pw(client, "mia@test.ch")
+    u = _fresh("mia@test.ch")
+    assert u.abo_bis is None
+    assert u.abo_gekuendigt is False
+    assert u.stripe_subscription_id is None
+    assert u.abo_intervall is None
+
+
+def test_aufgabe_hat_eine_obergrenze_an_nachrichten(client):
+    from app.routers.attempts import CHAT_MAX_PER_ATTEMPT
+
+    headers = register_pw(client, "mia@test.ch")
+    aid = _make_task(client, headers)
+    with SessionLocal() as db:
+        for i in range(CHAT_MAX_PER_ATTEMPT - 1):  # plus Eroeffnung = Grenze erreicht
+            # in der Vergangenheit, sonst greift zuerst die Minuten-Bremse
+            db.add(Message(attempt_id=aid, role=MessageRole.student, text=f"Versuch {i}",
+                           created_at=datetime.utcnow() - timedelta(hours=1)))
+        db.commit()
+    r = client.post(f"/api/attempts/{aid}/chat", headers=headers, json={"text": "x = 5"})
+    assert r.status_code == 429
+    assert "lang geworden" in r.json()["detail"]
+    # Eine neue Runde derselben Aufgabe geht wieder
+    ex_id = client.get(f"/api/attempts/{aid}", headers=headers).json()["exercise"]["id"]
+    neu = client.post(f"/api/exercises/{ex_id}/attempts", headers=headers).json()["attempt"]["id"]
+    with client.stream("POST", f"/api/attempts/{neu}/chat", headers=headers, json={"text": "x = 5"}) as r:
+        assert r.status_code == 200
+        "".join(r.iter_text())

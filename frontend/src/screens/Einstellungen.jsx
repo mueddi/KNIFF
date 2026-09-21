@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useAuth } from "../lib/auth.jsx";
 import { useLang, GRADE_KEYS, gradeLabel } from "../lib/i18n.jsx";
@@ -9,7 +9,9 @@ export default function Einstellungen() {
   const nav = useNavigate();
   const { user, setUser, logout } = useAuth();
   const { t, lang, setLang } = useLang();
-  const [tab, setTab] = useState("profil");
+  const [params] = useSearchParams();
+  // Stripe schickt nach dem Kauf auf ?zahlung=ok zurueck – dann gehoert der Abo-Reiter auf.
+  const [tab, setTab] = useState(params.get("tab") || (params.get("zahlung") ? "abo" : "profil"));
   const [name, setName] = useState(user?.display_name || "");
   const [grade, setGrade] = useState(user?.grade_level || "oberstufe");
   const [language, setLanguage] = useState(user?.language === "en" ? "en" : "de");
@@ -173,14 +175,126 @@ export default function Einstellungen() {
   );
 }
 
+export function chf(rappen) {
+  const s = (rappen / 100).toFixed(2);
+  return s.endsWith(".00") ? s.slice(0, -3) + ".–" : s;
+}
+
 function AboTab({ onBuy }) {
-  const { t } = useLang();
+  const { t, lang } = useLang();
+  const dialog = useDialog();
+  const [params] = useSearchParams();
   const [quota, setQuota] = useState(null);
+  const [note, setNote] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const load = () => api.get("/api/quota").then(setQuota).catch(() => setQuota(null));
+  useEffect(() => { load(); }, []);
+  // Rueckkehr von der Stripe-Bezahlseite: der Webhook braucht evtl. 1–2 Sekunden.
   useEffect(() => {
-    api.get("/api/quota").then(setQuota).catch(() => setQuota(null));
-  }, []);
+    const z = params.get("zahlung");
+    if (z === "ok") {
+      setNote({ type: "ok", text: t("Zahlung erhalten – dein Abo ist in wenigen Sekunden aktiv. 🎉", "Payment received – your subscription will be active in a few seconds. 🎉") });
+      const t1 = setTimeout(load, 2500);
+      const t2 = setTimeout(load, 8000);
+      return () => { clearTimeout(t1); clearTimeout(t2); };
+    }
+    if (z === "abbruch") setNote({ type: "error", text: t("Zahlung abgebrochen – es wurde nichts belastet.", "Payment cancelled – nothing was charged.") });
+  }, [params]);
+
+  async function umstellen(kuendigen) {
+    const datum = quota.abo_bis ? new Date(quota.abo_bis).toLocaleDateString(lang === "en" ? "en-GB" : "de-CH") : "";
+    if (kuendigen) {
+      const ja = await dialog.bestaetigen({
+        titel: t(`${quota.plus_name} kündigen?`, `Cancel ${quota.plus_name}?`),
+        text: t(`Dein Abo läuft bis ${datum} weiter und verlängert sich danach nicht mehr. Bis dahin kannst du die Kündigung jederzeit zurücknehmen.`,
+                `Your subscription stays active until ${datum} and will not renew afterwards. Until then you can undo the cancellation at any time.`),
+        bestaetigen: t("Kündigen", "Cancel subscription"),
+        gefahr: true,
+      });
+      if (!ja) return;
+    }
+    setBusy(true);
+    setNote(null);
+    try {
+      setQuota(await api.post(kuendigen ? "/api/pay/abo/kuendigen" : "/api/pay/abo/weiter"));
+      setNote({ type: "ok", text: kuendigen
+        ? t(`Gekündigt. ${quota.plus_name} bleibt bis ${datum} aktiv.`, `Cancelled. ${quota.plus_name} stays active until ${datum}.`)
+        : t("Kündigung zurückgenommen – dein Abo läuft weiter.", "Cancellation undone – your subscription continues.") });
+    } catch (e) {
+      setNote({ type: "error", text: e.message });
+    } finally {
+      setBusy(false);
+    }
+  }
 
   if (!quota) return <div style={{ fontSize: 14, color: "#9aa0ab" }}>{t("lädt …", "loading …")}</div>;
+
+  const hinweis = note && (
+    <div style={{ maxWidth: 620, marginBottom: 16, fontSize: 13, borderRadius: 12, padding: "11px 16px", background: note.type === "error" ? "#fdecec" : "#e8f6ec", color: note.type === "error" ? "#c0392b" : "#1a7f3c", border: `1px solid ${note.type === "error" ? "#f5cccc" : "#cde7d6"}` }}>
+      {note.text}
+    </div>
+  );
+
+  if (quota.abo_enabled && !quota.unlimited) {
+    const datum = quota.abo_bis ? new Date(quota.abo_bis).toLocaleDateString(lang === "en" ? "en-GB" : "de-CH") : "";
+    const karte = { background: "#fff", border: "1px solid #e7e8ee", borderRadius: 14, padding: 20, maxWidth: 620, marginBottom: 16 };
+    return (
+      <>
+        <div style={{ fontSize: 20, fontWeight: 800, marginBottom: 24 }}>{quota.plus_name}</div>
+        {hinweis}
+        {quota.stufe === "plus" ? (
+          <div style={karte}>
+            <div style={{ fontSize: 12, color: "#9aa0ab", marginBottom: 6 }}>{t("Dein Abo", "Your subscription")}</div>
+            <div style={{ fontSize: 20, fontWeight: 800, color: "#1a7f3c" }}>✨ {quota.plus_name} {t("aktiv", "active")}</div>
+            <div style={{ fontSize: 13, color: "#6b7280", marginTop: 8, lineHeight: 1.55 }}>
+              {quota.abo_gekuendigt
+                ? t(`Gekündigt – aktiv bis ${datum}, danach keine Verlängerung mehr.`, `Cancelled – active until ${datum}, no renewal afterwards.`)
+                : t(`${quota.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar.`,
+                    `${quota.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime.`)}
+            </div>
+            {quota.percent_used >= 80 && (
+              <div style={{ fontSize: 12.5, color: "#a05c12", marginTop: 10 }}>
+                {t("Du hast diesen Monat sehr viel geübt – ab dem 1. geht es unbegrenzt weiter.", "You practised a lot this month – from the 1st it continues without limit.")}
+              </div>
+            )}
+            <button onClick={() => umstellen(!quota.abo_gekuendigt)} disabled={busy}
+              style={{ marginTop: 16, borderRadius: 11, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: "pointer", border: "1px solid #e7e8ee", background: "#fff", color: quota.abo_gekuendigt ? "#4f46e5" : "#6b7280", opacity: busy ? 0.6 : 1 }}>
+              {busy ? t("Moment …", "One sec …") : quota.abo_gekuendigt ? t("Kündigung zurücknehmen", "Undo cancellation") : t("Abo kündigen", "Cancel subscription")}
+            </button>
+          </div>
+        ) : (
+          <div style={karte}>
+            <div style={{ fontSize: 12, color: "#9aa0ab", marginBottom: 6 }}>{t("Aktuell", "Currently")}</div>
+            {quota.stufe === "trial" ? (
+              <>
+                <div style={{ fontSize: 20, fontWeight: 800 }}>🎁 {t(`${quota.trial_used} von ${quota.trial_tasks} Gratis-Aufgaben genutzt`, `${quota.trial_used} of ${quota.trial_tasks} free tasks used`)}</div>
+                <div style={{ height: 5, borderRadius: 999, background: "#eef0f3", overflow: "hidden", marginTop: 10 }}>
+                  <div style={{ width: `${quota.percent_used}%`, height: "100%", background: quota.percent_used >= 90 ? "#d9573a" : "#6366f1" }} />
+                </div>
+              </>
+            ) : quota.stufe === "guthaben" ? (
+              <div style={{ fontSize: 20, fontWeight: 800 }}>⚡ {t(`Guthaben: ${quota.token_balance} Tokens`, `Balance: ${quota.token_balance} tokens`)}
+                <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 400, marginTop: 6 }}>{t("Aus einem früheren Kauf – wird pro Antwort abgebucht, bis es leer ist.", "From an earlier purchase – deducted per answer until it is used up.")}</div>
+              </div>
+            ) : (
+              <div style={{ fontSize: 20, fontWeight: 800 }}>{t("Deine Gratis-Aufgaben sind aufgebraucht", "Your free tasks are used up")}</div>
+            )}
+          </div>
+        )}
+        {quota.stufe !== "plus" && (
+          <div style={{ ...karte, background: "#1a1c22", color: "#fff", border: "none" }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: "#c9ccf6", marginBottom: 6 }}>{quota.plus_name}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em" }}>CHF {chf(quota.preise.monat)} <span style={{ fontSize: 13, color: "#9aa0ab", fontWeight: 500 }}>{t("im Monat", "per month")}</span></div>
+            <div style={{ fontSize: 12.5, color: "#9aa0ab", marginBottom: 12 }}>{t(`oder CHF ${chf(quota.preise.jahr)} im Jahr · pro Kind · jederzeit kündbar`, `or CHF ${chf(quota.preise.jahr)} per year · per child · cancel anytime`)}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{t("So viel üben, wie du willst – Foto, Stift, Aufgabensammlung, Probeprüfungen, Elternansicht.", "Practise as much as you like – photo, pen, task collection, mock exams, parent view.")}</div>
+            <button onClick={onBuy} className="btn-primary" style={{ padding: "11px 20px", borderRadius: 11, fontSize: 14, border: "none" }}>
+              {t(`${quota.plus_name} aktivieren →`, `Activate ${quota.plus_name} →`)}
+            </button>
+          </div>
+        )}
+      </>
+    );
+  }
 
   if (quota.unlimited) {
     return (

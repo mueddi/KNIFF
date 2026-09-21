@@ -151,6 +151,7 @@ def health(response: Response):
         "datenbank": datenbank,
         "mail": bool(settings.supabase_auth_enabled or settings.smtp_enabled),
         "zahlung": settings.payments_enabled,
+        "abo": bool(settings.abo_enabled and settings.payments_enabled),
         "rueckkehr_adresse": settings.frontend_base_url,
     }
     # Nie zwischenspeichern: ein Monitor soll den JETZIGEN Zustand sehen,

@@ -76,7 +76,17 @@ class User(Base):
     plan: Mapped[Plan] = mapped_column(Enum(Plan), default=Plan.free, nullable=False)
     token_balance: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     free_used_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # Monatszaehler: mit Kniff Plus zaehlt er den GESAMTEN Monatsverbrauch
+    # (Fair-Use), nicht nur den Gratis-Anteil - der Name ist historisch.
     free_month: Mapped[str | None] = mapped_column(String(7), nullable=True)  # "YYYY-MM"
+
+    # Kniff Plus (Stripe-Abo). Plus ist aktiv, solange abo_bis in der Zukunft
+    # liegt - kein neuer Plan-Wert, damit das Postgres-Enum unangetastet bleibt.
+    stripe_customer_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    stripe_subscription_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    abo_bis: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abo_gekuendigt: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    abo_intervall: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "monat" | "jahr"
 
     # Privacy-Schalter: gibt der/die Schueler:in Aggregate fuer Eltern frei?
     share_with_parents: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
@@ -381,6 +391,16 @@ class LibraryTopic(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
+
+
+class StripeEvent(Base):
+    """Verarbeitete Stripe-Ereignisse: Stripe schickt Webhooks bei Zweifel
+    mehrfach, die Ereignis-ID macht jede Verarbeitung idempotent."""
+
+    __tablename__ = "stripe_events"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now, nullable=False)
 
 
