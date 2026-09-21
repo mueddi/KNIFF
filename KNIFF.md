@@ -71,19 +71,23 @@ Seit dem 9.9.2026 im Code, live erst mit `ABO_ENABLED=true` (im
   monatlich (`TRIAL_TASKS`). Gezählt werden begonnene Aufgaben; weitere
   Runden und Wiederholungen dieser Aufgaben bleiben frei.
 - **Kniff Plus:** **CHF 9.90 im Monat oder 89.– im Jahr pro Kind**
-  (`PLUS_PREIS_MONAT_RAPPEN`, `PLUS_PREIS_JAHR_RAPPEN`), «so viel üben, wie du
-  willst», jederzeit kündbar (läuft bis Periodenende). Stille Fair-Use-Grenze
-  von 1500 Tokens im Monat (`PLUS_MONATSLIMIT_TOKENS`, echte Kosten höchstens
-  ≈ 5 CHF); beim Erreichen eine freundliche Sperre ohne Verkaufsversuch.
+  (`PLUS_PREIS_MONAT_RAPPEN`, `PLUS_PREIS_JAHR_RAPPEN`), jederzeit kündbar
+  (läuft bis Periodenende). Jede bezahlte Abo-Rechnung schreibt
+  **600 Tokens** gut (`PLUS_TOKENS_MONAT`; Jahresabo zwölf Monate auf
+  einmal, echte Kosten höchstens ≈ 2 CHF pro Monat). Unverbrauchte Tokens
+  bleiben. Leer heisst zu (402, Grund `plus_leer`) – dann **Token-Pakete
+  nachkaufen** (`POST /api/pay/tokens`, 200/900/1900 Tokens für 2/9/19 CHF,
+  nur mit aktivem Abo, auch Eltern fürs Kind). Entschieden am 21.9.: Abo
+  begrenzt statt unbegrenzt, Tokens sammeln sich an.
 - **Eltern** sehen in der Elternansicht den Stand ihres Kindes und schliessen
   das Abo dort ab (Rechnung an die Eltern-Adresse, Abo hängt am Kind).
-- **Altes Guthaben** (Einmal-Pakete) bleibt nutzbar und wird nach der Probe
-  weiter abgebucht; neu kaufen kann man es nicht mehr.
+- **Altes Guthaben** (Einmal-Pakete von vor dem Abo) bleibt nutzbar und wird
+  nach der Probe weiter abgebucht; es liegt im selben Topf wie die Abo-Tokens.
 - **Intern** bleibt alles in Tokens (1 Token = 1 Rappen verrechnete
   KI-Leistung, `max(1, aufgerundet(echte Kosten × USD_CHF_RATE ×
-  BILLING_MARGIN))` pro Antwort, `BILLING_MARGIN=3.0`) – als Fair-Use-Zähler
-  (`users.free_used_tokens`/`free_month` zählen den GESAMTEN Monatsverbrauch)
-  und für die Kostenseite. Nutzer:innen sehen nur noch Aufgaben.
+  BILLING_MARGIN))` pro Antwort, `BILLING_MARGIN=3.0`); abgebucht wird vom
+  Guthaben (`users.token_balance`), `free_used_tokens`/`free_month` zählen den
+  Monatsverbrauch nur noch zur Anzeige.
 - **Stripe:** Checkout mit `mode=subscription` und Preis inline (nichts im
   Stripe-Dashboard anzulegen); Kündigen über `POST /api/pay/abo/kuendigen`
   (`cancel_at_period_end`), kein Kundenportal. Jeder Aufruf mit

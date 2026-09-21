@@ -84,7 +84,7 @@ Fehlen die Abhängigkeiten im Container: `uv venv /tmp/kniff-venv` und
 | Aufgaben-Bibliothek (Aufgaben, nicht PDFs; Start im Tutor, KI-Vorschau) | `backend/app/routers/library.py`, `frontend/src/screens/Bibliothek.jsx` |
 | Störungen mit Einordnung «handeln / prüfen / keine» | `backend/app/services/stoerungen.py` |
 | App-Dialoge (nie `window.confirm`!) | `frontend/src/lib/dialog.jsx` |
-| Preise, Kontingent (Kniff Plus, Probe, Fair-Use) | `backend/app/config.py`, `backend/app/services/quota.py`, `backend/app/routers/pay.py` |
+| Preise, Kontingent (Kniff Plus, Probe, Token-Pakete) | `backend/app/config.py`, `backend/app/services/quota.py`, `backend/app/routers/pay.py` |
 | Farben, Schriften | `frontend/src/styles/theme.css` |
 | Serverless-Einstieg (Vercel) | `api/index.py` |
 
