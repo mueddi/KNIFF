@@ -506,3 +506,124 @@ def stoerungen(tage: int = Query(30, ge=1, le=365),
             "Meldungen sind auf eine pro Stunde und Fehlerart gedrosselt – die Zaehler sind Untergrenzen.",
             "Messages are throttled to one per hour and error type – the counts are lower bounds."),
     }
+
+
+# ---------- Rueckmeldungen: alle Feedbacks auf einer Seite ----------
+
+# Kategorien des Knopfs «Problem melden» (routers/feedback.py) plus der
+# Pseudo-Schluessel «feedback» fuer freie Rueckmeldungen aus dem Feedback-
+# Fenster. Immer alle sechs Zeilen ausgeben, damit die Seite auch mit einer
+# einzigen Rueckmeldung eine feste Form hat.
+FEEDBACK_KATEGORIE_LABEL: dict[str, tuple[str, str]] = {
+    "feedback": ("Freies Feedback", "Free feedback"),
+    "erkennung": ("Foto/Zeichnung falsch erkannt", "Photo/drawing read wrongly"),
+    "antwort": ("Antwort falsch oder unverständlich", "Answer wrong or unclear"),
+    "verraten": ("Lösung verraten", "Solution given away"),
+    "technik": ("Technisches Problem", "Technical problem"),
+    "anderes": ("Anderes", "Other"),
+}
+
+
+def _kategorie_von(fb) -> str:
+    if fb.kind == "problem":
+        return fb.category if fb.category in FEEDBACK_KATEGORIE_LABEL else "anderes"
+    return "feedback"
+
+
+@router.get("/feedback")
+def feedback_uebersicht(tage: int = Query(90, ge=1, le=365),
+                        user: User = Depends(require_admin), db: Session = Depends(get_db)):
+    """Alle Rueckmeldungen im Zeitfenster, fuer EINE Seite aufbereitet:
+    Zaehler (gesamt, offen, nach Art, nach Kategorie), Verlauf pro Woche
+    (Montag, Europe/Zurich, lueckenlos) und aehnliche Texte gebuendelt
+    (services/feedback_gruppen.py). Die Einzeleintraege haengen an den
+    Gruppen; Zeitstempel kommen mit Zeitzone, damit der Browser nicht
+    zwei Stunden daneben liegt."""
+    from .. import i18n
+    from ..models import Feedback
+    from ..schemas import FeedbackOut
+    from ..services import feedback_gruppen
+    from ..services.aggregates import _week_start
+    from ..services.timezone import LOCAL_TZ
+
+    lang = i18n.lang_of(user)
+    jetzt = datetime.now(timezone.utc)
+    since = (jetzt - timedelta(days=tage)).replace(tzinfo=None)
+
+    rows = db.execute(
+        select(Feedback, User.display_name, User.role)
+        .join(User, User.id == Feedback.user_id)
+        .where(Feedback.created_at >= since)
+        .order_by(Feedback.id.desc())
+        .limit(feedback_gruppen.MAX_ZEILEN)
+    ).all()
+    absender = {fb.id: (name, role.value) for fb, name, role in rows}
+    feedbacks = [fb for fb, _, _ in rows]
+
+    def lokal(zeit: datetime) -> datetime:
+        if zeit.tzinfo is None:
+            zeit = zeit.replace(tzinfo=timezone.utc)
+        return zeit.astimezone(LOCAL_TZ)
+
+    # Zaehler
+    nach_art = {"feedback": 0, "problem": 0}
+    kategorien = {k: {"id": k, "label": i18n.t(lang, *paar), "anzahl": 0, "offen": 0}
+                  for k, paar in FEEDBACK_KATEGORIE_LABEL.items()}
+    offen_gesamt = 0
+    for fb in feedbacks:
+        nach_art[fb.kind if fb.kind in nach_art else "feedback"] += 1
+        k = kategorien[_kategorie_von(fb)]
+        k["anzahl"] += 1
+        if fb.resolved_at is None:
+            k["offen"] += 1
+            offen_gesamt += 1
+
+    # Wochen, lueckenlos vom Anfang des Zeitfensters bis heute
+    wochen: dict = {}
+    start = _week_start(lokal(since).date())
+    ende = _week_start(lokal(jetzt).date())
+    w = start
+    while w <= ende:
+        wochen[w] = {"start": w.isoformat(), "gesamt": 0, "feedback": 0, "problem": 0}
+        w += timedelta(days=7)
+    for fb in feedbacks:
+        eimer = wochen.get(_week_start(lokal(fb.created_at).date()))
+        if eimer is None:
+            continue
+        eimer["gesamt"] += 1
+        eimer[fb.kind if fb.kind in ("feedback", "problem") else "feedback"] += 1
+
+    # Gruppen
+    def eintrag(fb) -> dict:
+        d = FeedbackOut.model_validate(fb).model_dump()
+        d["display_name"], d["role"] = absender.get(fb.id, ("", ""))
+        d["created_at"] = _utc(fb.created_at)
+        d["resolved_at"] = _utc(fb.resolved_at)
+        return d
+
+    gruppen = []
+    for i, g in enumerate(feedback_gruppen.gruppiere(feedbacks), start=1):
+        kopf = g.eintraege[0]
+        gruppen.append({
+            "id": f"g{i}",
+            "kind": kopf.kind,
+            "category": kopf.category,
+            "label": kategorien[_kategorie_von(kopf)]["label"],
+            "text": kopf.text,
+            "anzahl": g.anzahl,
+            "offen": sum(1 for e in g.eintraege if e.resolved_at is None),
+            "erster": _utc(min(e.created_at for e in g.eintraege)),
+            "letzter": _utc(max(e.created_at for e in g.eintraege)),
+            "eintraege": [eintrag(e) for e in g.eintraege],
+        })
+
+    return {
+        "zeitraum_tage": tage,
+        "gekappt": len(rows) >= feedback_gruppen.MAX_ZEILEN,
+        "gesamt": len(feedbacks),
+        "offen": offen_gesamt,
+        "nach_art": nach_art,
+        "nach_kategorie": list(kategorien.values()),
+        "wochen": list(wochen.values()),
+        "gruppen": gruppen,
+    }
