@@ -1,7 +1,10 @@
 # Kniff – Arbeitsanweisung
 
 KI-Mathe-Tutor für die Schweizer Mittelstufe, Oberstufe und das Gymnasium.
-Live: https://schrittweise-2-0.vercel.app · Repository: `mueddi/Schrittweise-2.0`
+Live: https://kniff.app (seit 16.9.; die alte Adresse `schrittweise-2-0.vercel.app`
+antwortet nur, wenn der Betreiber sie in Vercel als Umleitung eingetragen hat) ·
+Repository: `mueddi/KNIFF` (bis 9.9. `mueddi/Schrittweise-2.0`; GitHub leitet
+den alten Namen weiter)
 
 Der Betreiber ist **kein Programmierer**. Erkläre auf Deutsch, in ganzen Sätzen,
 ohne Fachjargon – und wenn Fachbegriffe unvermeidlich sind, erkläre sie beim
@@ -35,7 +38,7 @@ ersten Mal. Er trifft die Entscheidungen; du lieferst Belege, keine Vermutungen.
 
 ```
 Zweig  →  Vercel baut automatisch eine Vorschau  →  er schaut sie an
-       →  Pull Request  →  303 Tests  →  sein Merge-Klick  →  live
+       →  Pull Request  →  Tests  →  sein Merge-Klick  →  live
 ```
 
 * **Produktion ausschliesslich über `.github/workflows/deploy.yml`** (Test →
@@ -61,7 +64,7 @@ Zweig  →  Vercel baut automatisch eine Vorschau  →  er schaut sie an
 ## Tests
 
 ```
-cd backend && python -m pytest -q          # 303 Tests, müssen alle grün sein
+cd backend && python -m pytest -q          # müssen alle grün sein
 cd frontend && npm run build               # enthält die Browser-Dialog-Bremse
 ```
 

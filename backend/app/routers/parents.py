@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 
 from ..database import get_db
 from ..deps import require_parent, require_student
-from ..models import ParentLink, Role, User
+from ..models import ParentLink, User
 from ..schemas import ParentChildSummary, ParentLinkOut, ParentRedeem
 from ..security import new_invite_code
 from ..services import aggregates, quota

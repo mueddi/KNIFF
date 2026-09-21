@@ -14,7 +14,6 @@ from ..schemas import (
     AttemptStateOut,
     ChatRequest,
     ExerciseOut,
-    MessageOut,
     message_out,
 )
 from .. import i18n

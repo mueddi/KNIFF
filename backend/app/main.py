@@ -2,7 +2,7 @@
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from .config import settings
@@ -34,6 +34,14 @@ def _check_production_config() -> None:
             "MAGIC_LINK_DEV_RETURN=false setzen – oder fuer einen bewussten "
             "Test-Deploy zusaetzlich ALLOW_INSECURE_DEV_LOGIN=true setzen."
         )
+    # Keine harten Fehler, aber laut: jede dieser Werte deutet auf eine
+    # vergessene Variable hin und kostet sonst Stunden Fehlersuche.
+    if settings.database_url.startswith("sqlite"):
+        logger.warning("DATABASE_URL zeigt auf SQLite – auf Vercel ist die Datenbank pro Instanz und fluechtig.")
+    if "localhost" in settings.frontend_base_url:
+        logger.warning("FRONTEND_BASE_URL steht auf localhost – Mail-Links fuehren ins Leere.")
+    if any("localhost" in o for o in settings.cors_origin_list):
+        logger.warning("CORS_ORIGINS enthaelt localhost – in Produktion auf die Live-Adresse setzen.")
 
 
 @asynccontextmanager
@@ -122,7 +130,7 @@ def _datenbank_erreichbar() -> bool:
 
 
 @app.get("/api/health")
-def health():
+def health(response: Response):
     # "mail": kann die App E-Mails verschicken (Passwort-vergessen /
     # E-Mail-Bestaetigung)? "zahlung": sind beide Stripe-Schluessel gesetzt?
     # Nur Booleans – niemals Konfigurationsdetails oder Schluessel selbst.
@@ -146,12 +154,16 @@ def health():
         "abo": bool(settings.abo_enabled and settings.payments_enabled),
         "rueckkehr_adresse": settings.frontend_base_url,
     }
+    # Nie zwischenspeichern: ein Monitor soll den JETZIGEN Zustand sehen,
+    # nicht ein «ok» von vorhin.
+    kopf = {"Cache-Control": "no-store"}
     if not datenbank:
         from fastapi.responses import JSONResponse
 
         # Keine Einzelheiten nach aussen: kein Fehlertext, keine
         # Verbindungszeichenfolge. Die stehen im Log.
-        return JSONResponse(status_code=503, content=auskunft)
+        return JSONResponse(status_code=503, content=auskunft, headers=kopf)
+    response.headers.update(kopf)
     return auskunft
 
 

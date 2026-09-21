@@ -7,7 +7,7 @@
 > ersten Besuch erkannt, manuell umstellbar (Landing/Login/Einstellungen); der
 > Tutor antwortet in der gewählten Sprache.
 
-Live: **https://schrittweise-2-0.vercel.app** · Der visuelle Massstab ist
+Live: **https://kniff.app** (seit 16.9.2026) · Der visuelle Massstab ist
 `design/referenz.html` (im Browser öffnen).
 
 ## Der Name
@@ -28,9 +28,9 @@ kumpelhaft, geduldig, nie belehrend, nie überwachend (steht so im
 `SYSTEM_PROMPT`, `backend/app/services/tutor.py`). Gegenüber Eltern
 seriös-kompetent, aber warm und klar – kein Bildungsjargon, keine KI-Buzzwords.
 
-> **Noch auf den alten Namen:** die Live-Adresse (`schrittweise-2-0.vercel.app`),
-> das Vercel-Projekt, der GitHub-Repo-Name, die Backup-Dateinamen und die
-> Absender-Domain in `smtp_from`. Das sind Infrastruktur-Bezeichner – sie zu
+> **Noch auf den alten Namen:** das Vercel-Projekt (`schrittweise-2-0`, nur
+> intern sichtbar), die Backup-Dateinamen und die Absender-Domain in
+> `smtp_from`. Das sind Infrastruktur-Bezeichner – sie zu
 > ändern bricht Deploy und Backups und gehört in einen eigenen, bewussten
 > Schritt (siehe unten «Umbenennen: was noch offen ist»).
 
@@ -144,11 +144,12 @@ Environment Variables**, Umgebung **nur Preview**:
 |---|---|
 | `JWT_SECRET` | irgendein langer Zufallswert; ohne ihn verweigert `_check_production_config()` den Start (`VERCEL` gesetzt ⇒ `is_production`) |
 
-Bewusst **nicht** gesetzt: `DATABASE_URL` – dann fällt `api/index.py:56` auf eine
-leere Wegwerf-Datenbank (SQLite in `/tmp`) zurück und ein Testlauf kann die
-echten Schülerdaten nicht berühren. Ebenso `ANTHROPIC_API_KEY` – ohne Schlüssel
-antwortet der deterministische Mock, was für einen Start-Test genügt und nichts
-kostet.
+Dazu (seit 7.9., siehe `CLAUDE.md`): `DATABASE_URL` auf das eigene
+Supabase-Projekt **kniff-vorschau** – die frühere Wegwerf-Datenbank (SQLite in
+`/tmp`) gehörte jeweils nur einer Serverless-Instanz und warf einen nach dem
+Anmelden sofort wieder raus. Und `ANTHROPIC_API_KEY` mit eigenem Schlüssel,
+damit Testkosten getrennt sichtbar sind. Die Produktionsdaten berührt eine
+Vorschau nie.
 
 Für **Production** in Vercel bewusst **nichts** eintragen: die Werte kommen dort
 weiterhin aus dem Sidecar. (Falls doch einmal nötig – in Vercel gesetzte
@@ -174,7 +175,7 @@ Kommentaren in `backend/.env.example`):
 | `DATABASE_URL` | Supabase **Session pooler**-URL |
 | `ANTHROPIC_API_KEY` | echter Tutor (ohne Key: deterministischer Mock) |
 | `SUPABASE_URL` + `SUPABASE_ANON_KEY` | «Passwort vergessen»-Mails über Supabase Auth |
-| `FRONTEND_BASE_URL` | `https://schrittweise-2-0.vercel.app` |
+| `FRONTEND_BASE_URL` | `https://kniff.app` (auf Vercel automatisch aus der Projekt-Domain, siehe `app/plattform.py`) |
 | `FREE_MONTHLY_TOKENS`, `BILLING_MARGIN`, `USD_CHF_RATE` | Preismodell (Defaults 50 / 3.0 / 0.90) |
 | `REQUIRE_EMAIL_VERIFICATION` | E-Mail-Bestätigungs-Pflicht – **erst aktivieren, wenn der Mailversand nachweislich läuft** |
 | `SMTP_*` + `ALERT_EMAIL` | eigener Mailversand; schaltet auch Betreiber-Alarm-Mails frei |
@@ -198,7 +199,7 @@ Passwort-Änderung invalidiert alle alten Tokens; Magic-Link-Tokens nur gehasht.
 - **Störungen:** KI-/OCR-/Webhook-Fehler erscheinen unter Admin → Kosten
   («Letzte Störungen») und gehen per Mail an `ALERT_EMAIL`, sobald SMTP
   konfiguriert ist. Für Ausfall-Überwachung von aussen: Gratis-Monitor
-  (z. B. UptimeRobot) auf `https://schrittweise-2-0.vercel.app/api/health`.
+  (z. B. UptimeRobot) auf `https://kniff.app/api/health`.
 
 ## Projektstruktur
 
@@ -265,7 +266,8 @@ Token-Modell ab; Tests, Backups, Alarme und Härtung sind eingebaut. Offen:
    1. Stripe-Dashboard → **Entwickler → API-Schlüssel** → «Geheimer
       Schlüssel» kopieren (Testmodus: beginnt mit `sk_test_`).
    2. Stripe-Dashboard → **Entwickler → Webhooks → Endpunkt hinzufügen**:
-      URL `https://schrittweise-2-0.vercel.app/api/pay/webhook`, Events
+      URL `https://kniff.app/api/pay/webhook` (Stripe folgt KEINEN
+      Umleitungen – die alte Adresse funktioniert dort nicht), Events
       `checkout.session.completed`, `invoice.paid`,
       `customer.subscription.updated`, `customer.subscription.deleted`.
       Danach das **Signaturgeheimnis** des Endpunkts kopieren (`whsec_…`).
@@ -276,7 +278,7 @@ Token-Modell ab; Tests, Backups, Alarme und Härtung sind eingebaut. Offen:
    4. Deploy auslösen (beliebiger Push auf `main` oder Actions →
       «Deploy (Vercel)» → «Run workflow»). Die Schlüssel landen über den
       Sidecar in der Laufzeit-Konfiguration.
-   5. **Prüfen:** `https://schrittweise-2-0.vercel.app/api/health` muss
+   5. **Prüfen:** `https://kniff.app/api/health` muss
       `"zahlung": true` zeigen. Dann auf der Preise-Seite mit der
       Stripe-Testkarte `4242 4242 4242 4242` (beliebiges künftiges
       Datum, CVC 123) das Abo abschliessen → «Kniff Plus aktiv» erscheint
@@ -309,8 +311,8 @@ eine eigene, bewusste Umstellung:
 
 | Was | Heute | Warum offen |
 |---|---|---|
-| Live-Adresse | `schrittweise-2-0.vercel.app` | Umbenennen des Vercel-Projekts ändert die URL – erst eine eigene Domain (z. B. `kniff.ch`) verbinden, dann umstellen |
-| GitHub-Repo | `mueddi/Schrittweise-2.0` | Umbenennen bricht alle bestehenden Klone und den Deploy-Workflow, bis er nachgezogen ist |
+| ~~Live-Adresse~~ | `kniff.app` seit 16.9. | Erledigt (Domain bei Squarespace, A-Eintrag auf Vercel). Beim Umbau fiel der Alias `schrittweise-2-0.vercel.app` aus dem Projekt – alte Links sind tot, bis er in Vercel als 308-Umleitung auf `kniff.app` wieder eingetragen ist. Stripe-Webhook und Supabase-Redirect-URLs müssen ausdrücklich auf `kniff.app` stehen |
+| ~~GitHub-Repo~~ | `mueddi/KNIFF` seit 9.9. | Erledigt. Der Deploy brach dabei wie vorhergesagt (Vercel-CLI riet den Projektnamen aus dem Ordner «KNIFF»); seither stehen `VERCEL_ORG_ID`/`VERCEL_PROJECT_ID` fest in `deploy.yml`. Alte Klone und Links funktionieren über GitHubs Weiterleitung |
 | Absender der Mails | `no-reply@schrittweise.ch` | Die Domain muss zuerst existieren und im Mailversand freigegeben sein, sonst landen Mails im Spam |
 | Backup-Dateinamen, Log-Namen, `sw_token` im Browser | `schrittweise…` | Rein intern; ein Wechsel würde alte Backups schwerer auffindbar machen und alle Nutzer ausloggen |
 

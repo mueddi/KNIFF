@@ -24,7 +24,10 @@ DATABASE_URL = _normalize_url(settings.database_url)
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 else:
-    connect_args = {"options": "-c timezone=utc"}
+    # connect_timeout: ist der Supabase-Pooler nicht erreichbar, soll die
+    # Funktion nach 5 s mit einer klaren 503 antworten statt bis zum
+    # TCP-Timeout zu haengen (Vercel bricht bei 60 s hart ab).
+    connect_args = {"options": "-c timezone=utc", "connect_timeout": 5}
 
 _engine_kwargs: dict = {"connect_args": connect_args, "pool_pre_ping": True}
 if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
@@ -34,6 +37,16 @@ if os.environ.get("VERCEL") and not DATABASE_URL.startswith("sqlite"):
     _engine_kwargs.pop("pool_pre_ping")
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
+
+if DATABASE_URL.startswith("sqlite"):
+    # SQLite ignoriert Fremdschluessel, solange man es nicht bittet. In der
+    # Produktion (Postgres) sind sie hart – ohne dieses PRAGMA fielen
+    # Loeschfehler (z.B. Konto mit Noten) erst live auf, nie in den Tests.
+    from sqlalchemy import event
+
+    @event.listens_for(engine, "connect")
+    def _sqlite_fremdschluessel(dbapi_conn, _record):
+        dbapi_conn.execute("PRAGMA foreign_keys=ON")
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
 

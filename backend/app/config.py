@@ -16,6 +16,9 @@ class Settings(BaseSettings):
     jwt_secret: str = "dev-secret-nur-fuer-lokal-nicht-in-produktion"
     jwt_algorithm: str = "HS256"
     jwt_expire_minutes: int = 43200  # 30 Tage
+    # Ausweis aus einem Mail-Link (via=email) erlaubt Passwort-Neusetzen und
+    # Kontoloeschung ohne Passwort - darum kurzlebig, nicht 30 Tage.
+    jwt_email_expire_minutes: int = 60
 
     # Datenbank – SQLite lokal, per DATABASE_URL auf Postgres umstellbar
     database_url: str = "sqlite:///./schrittweise.db"

@@ -489,8 +489,7 @@ def stoerungen(tage: int = Query(30, ge=1, le=365),
             "letzter": _utc(g["letzter"]),
         })
     rang = {"handeln": 0, "pruefen": 1, "keine": 2}
-    ausgabe.sort(key=lambda g: (rang[g["stufe"]], g["letzter"] or ""), reverse=False)
-    # Innerhalb einer Stufe die juengste zuerst
+    # Nach Stufe, innerhalb einer Stufe die juengste zuerst
     ausgabe.sort(key=lambda g: (rang[g["stufe"]], -(datetime.fromisoformat(g["letzter"]).timestamp()
                                                     if g["letzter"] else 0)))
 

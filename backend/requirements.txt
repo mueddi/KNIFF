@@ -2,7 +2,7 @@
 # CPython 3.14 (nicht per .python-version steuerbar), ältere Pins liefern
 # dafür keine Binärpakete.
 fastapi==0.115.6
-uvicorn[standard]>=0.34,<1
+uvicorn>=0.34,<1  # ohne [standard]: uvloop/httptools/watchfiles braucht weder Vercel noch lokal
 sqlalchemy>=2.0.41,<2.1
 pydantic>=2.12,<3
 pydantic-settings>=2.7,<3
