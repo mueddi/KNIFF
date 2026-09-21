@@ -360,9 +360,18 @@ export default function Landing() {
     const reduziert = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     const ziele = Array.from(document.querySelectorAll(".landing-reveal"));
     let beobachter = null;
+    let notbremse = null;
     if (reduziert || !("IntersectionObserver" in window)) {
       ziele.forEach((el) => el.classList.add("is-visible"));
     } else {
+      // Was beim Laden schon im Bild ist, sofort zeigen – nicht auf den
+      // Beobachter warten. Und nach 1.5 s alles, falls er nie feuert
+      // (Vorschau-Werkzeuge, alte Browser): unsichtbarer Inhalt ist schlimmer
+      // als ein fehlender Effekt.
+      const hoehe = window.innerHeight || 800;
+      ziele.forEach((el) => {
+        if (el.getBoundingClientRect().top < hoehe) el.classList.add("is-visible");
+      });
       beobachter = new IntersectionObserver((eintraege) => {
         eintraege.forEach((e) => {
           if (e.isIntersecting) {
@@ -372,10 +381,12 @@ export default function Landing() {
         });
       }, { rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
       ziele.forEach((el) => beobachter.observe(el));
+      notbremse = setTimeout(() => ziele.forEach((el) => el.classList.add("is-visible")), 1500);
     }
     return () => {
       window.removeEventListener("scroll", onScroll);
       beobachter?.disconnect();
+      if (notbremse) clearTimeout(notbremse);
     };
   }, []);
 
@@ -451,12 +462,12 @@ export default function Landing() {
   return (
     <div style={{ minHeight: "100vh", background: "#fff", overflowX: "hidden" }}>
       <nav className={gescrollt ? "landing-nav landing-nav-fest" : "landing-nav"}>
-        <div style={{ display: "flex", alignItems: "center", gap: 24, padding: "16px 40px", maxWidth: 1180, margin: "0 auto" }} className="landing-section">
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 40px", maxWidth: 1180, margin: "0 auto", minWidth: 0 }} className="landing-section">
           <a href="#top" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
             <span style={{ width: 26, height: 26, borderRadius: 8, background: "#6366f1" }} />
             <span style={{ fontWeight: 800, fontSize: 19, color: INDIGO, letterSpacing: "-.02em" }}>Kniff</span>
           </a>
-          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
             <a href="#so" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("So funktioniert's", "How it works")}</a>
             <a href="#preise" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Preise", "Pricing")}</a>
             <a href="#eltern" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Für Eltern", "For parents")}</a>
@@ -555,7 +566,7 @@ export default function Landing() {
             </button>
           ))}
         </div>
-        <div key={stufeTab} role="tabpanel" className="popin" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 16 }} >
+        <div key={stufeTab} role="tabpanel" className="popin landing-hero" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 16 }}>
           <div style={card}>
             <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".04em", marginBottom: 4 }}>{aktiveStufe.klassen}</div>
             <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.01em", marginBottom: 8 }}>{aktiveStufe.titel}</div>
