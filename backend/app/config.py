@@ -77,7 +77,10 @@ class Settings(BaseSettings):
     stripe_webhook_secret: str = ""
     # TWINT-Abos gibt es bei Stripe erst ab dieser API-Version (27.5.2026);
     # damit liegt current_period_end am Abo-Posten (items.data[0]).
-    stripe_api_version: str = "2026-05-27"
+    # Stripe verlangt seit 2024 den Namenszusatz der Release-Reihe: ohne
+    # ".dahlia" lehnt es JEDEN Aufruf ab ("Invalid Stripe API version") –
+    # am 25.9. schlug so jeder Checkout mit 502 fehl, bemerkt vom Rauchtest.
+    stripe_api_version: str = "2026-05-27.dahlia"
 
     # Kniff Plus: EIN Abo pro Kind statt Token-Pakete. Solange der Schalter
     # aus ist, verhaelt sich die App exakt wie bisher (Gratis-Tokens + Guthaben).
