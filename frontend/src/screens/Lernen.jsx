@@ -279,6 +279,15 @@ export default function Lernen() {
   // (Race beim Aufgabenwechsel waehrend des Streamens) werden verworfen.
   const reqToken = useRef(0);
   const abortRef = useRef(null);
+  const konfettiTimer = useRef(null);
+  // Chat verlassen (andere Seite): laufende Antwort abbrechen und alle
+  // spaeter eintreffenden Teile verwerfen. Vorher lief der Stream weiter und
+  // schrieb in einen Bildschirm, den es nicht mehr gab.
+  useEffect(() => () => {
+    reqToken.current += 1;
+    abortRef.current?.abort();
+    clearTimeout(konfettiTimer.current);
+  }, []);
 
   const nearBottom = (rand = 120) => {
     const el = chatRef.current;
@@ -465,7 +474,7 @@ export default function Lernen() {
         // frisch gelöst -> Konfetti 🎉 (ausser reduced motion)
         if (fresh?.attempt?.solved && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           setCelebrate(true);
-          setTimeout(() => setCelebrate(false), 3200);
+          clearTimeout(konfettiTimer.current); konfettiTimer.current = setTimeout(() => setCelebrate(false), 3200);
         }
       }
     } catch (e) {
@@ -566,7 +575,7 @@ export default function Lernen() {
       shell.reloadTopics?.();
       if (geloest && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         setCelebrate(true);
-        setTimeout(() => setCelebrate(false), 3200);
+        clearTimeout(konfettiTimer.current); konfettiTimer.current = setTimeout(() => setCelebrate(false), 3200);
       }
     } catch (e) {
       await dialog.hinweis({

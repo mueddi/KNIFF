@@ -43,7 +43,10 @@ export default function AppShell() {
     api.get("/api/health").then((h) => setMailOk(!!h?.mail)).catch(() => setMailOk(false));
   }, []);
 
+  const [verifySending, setVerifySending] = useState(false);
   const sendVerifyMail = async () => {
+    if (verifySending) return; // Doppelklick = zwei Mails und schneller am Mail-Limit
+    setVerifySending(true);
     try {
       await api.post("/api/auth/request-link", { email: user.email });
       setVerifyNote("ok");
@@ -51,6 +54,8 @@ export default function AppShell() {
     } catch (e) {
       setVerifyNote("fehler");
       setVerifyErr(e.message || t("Versand fehlgeschlagen – versuch es später nochmal.", "Sending failed – please try again later."));
+    } finally {
+      setVerifySending(false);
     }
   };
 
@@ -265,7 +270,7 @@ export default function AppShell() {
               <span>{t("📧 Bestätige deine E-Mail – klick auf den Link, den wir dir geschickt haben. So kannst du dein Passwort jederzeit wiederherstellen.", "📧 Confirm your email – click the link we sent you. That way you can always recover your password.")}</span>
               <button
                 onClick={sendVerifyMail}
-                disabled={verifyNote === "ok"}
+                disabled={verifyNote === "ok" || verifySending}
                 style={{ border: "1px solid #e3c795", background: "#fff", color: "#a05c12", borderRadius: 999, padding: "4px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer" }}
               >
                 {verifyNote === "ok" ? t("Link geschickt ✓", "Link sent ✓") : verifyNote === "fehler" ? t("Nochmal versuchen", "Try again") : t("Link nochmal senden", "Resend link")}

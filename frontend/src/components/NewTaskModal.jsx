@@ -83,6 +83,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
   }
 
   async function start() {
+    if (busy || ocrBusy) return; // Erkennung laeuft noch: sonst startet die Aufgabe ohne den erkannten Text
     if (!text.trim() && !imagePath) {
       setError(t("Schreib zuerst die Aufgabe auf (oder lad ein Foto hoch).", "Write down the task first (or upload a photo)."));
       return;
@@ -278,7 +279,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
             <span>🔒</span> {t("Dein Bild wird nur für die Erkennung verwendet und trainiert keine KI-Modelle.", "Your image is only used for recognition and does not train any AI models.")}
           </div>
 
-          <button onClick={start} disabled={busy} className="btn-primary" style={{ width: "100%", borderRadius: 12, padding: 13, fontSize: 15, border: "none", opacity: busy ? 0.7 : 1 }}>
+          <button onClick={start} disabled={busy || ocrBusy} className="btn-primary" style={{ width: "100%", borderRadius: 12, padding: 13, fontSize: 15, border: "none", opacity: busy || ocrBusy ? 0.7 : 1 }}>
             {busy ? t("startet …", "starting …") : t("Loslegen →", "Let's go →")}
           </button>
         </div>
