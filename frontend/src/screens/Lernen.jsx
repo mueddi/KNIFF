@@ -788,7 +788,7 @@ export default function Lernen() {
                   ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
                   : t("⚡ Dein Guthaben ist aufgebraucht", "⚡ Your balance is used up");
               const text = grund === "plus_leer"
-                ? t("Deine Nachricht wurde nicht gesendet. Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Your message was not sent. Top up a token package – or wait for your subscription's next credit.")
+                ? t("Deine Nachricht wurde nicht gesendet. Lad ein Token-Paket nach – oder warte auf den nächsten Abo-Monat, dann gibt es neue Abo-Tokens.", "Your message was not sent. Top up a token package – or wait for your next subscription month, which brings new subscription tokens.")
                 : grund === "trial"
                   ? t(`Deine Nachricht wurde nicht gesendet. Mit ${plusName} übst du weiter – jederzeit kündbar.`, `Your message was not sent. With ${plusName} you keep practising – cancel anytime.`)
                   /* Bei einer Schnellantwort war das Eingabefeld nie gefuellt –

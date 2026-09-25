@@ -66,6 +66,19 @@ db.commit()
 `], { cwd: new URL("../../backend", import.meta.url).pathname });
 }
 
+// Laufendes Kniff Plus setzen – direkt in der Test-Datenbank, ohne Stripe.
+export function mitAbo(email, { tage = 20, intervall = "monat", gekauft = 0 } = {}) {
+  const python = process.env.E2E_PYTHON || "python3";
+  execFileSync(python, ["-c", `
+import sqlite3
+from datetime import datetime, timedelta
+db = sqlite3.connect("e2e.db")
+db.execute("update users set abo_bis = ?, abo_intervall = ?, token_balance = ? where email = ?",
+           (str(datetime.utcnow() + timedelta(days=${Number(tage)})), ${JSON.stringify(intervall)}, ${Number(gekauft)}, ${JSON.stringify(email)}))
+db.commit()
+`], { cwd: new URL("../../backend", import.meta.url).pathname });
+}
+
 // Die Fehlergrenze der App (main.jsx) darf nie erscheinen.
 export async function keinAbsturzBildschirm(page) {
   await expect(page.getByText("Ups, da ist etwas schiefgelaufen")).toHaveCount(0);

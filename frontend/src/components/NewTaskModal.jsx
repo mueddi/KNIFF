@@ -256,7 +256,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
             const titel = grund === "plus_leer" ? t("Deine Tokens sind aufgebraucht ⚡", "Your tokens are used up ⚡")
               : grund === "trial" ? t("Deine Gratis-Aufgaben sind aufgebraucht 🙌", "Your free tasks are used up 🙌")
                 : t("Dein Guthaben ist aufgebraucht 🙌", "Your balance is used up 🙌");
-            const text = grund === "plus_leer" ? t("Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Top up a token package – or wait for your subscription's next credit.")
+            const text = grund === "plus_leer" ? t("Lad ein Token-Paket nach – oder warte auf den nächsten Abo-Monat, dann gibt es neue Abo-Tokens.", "Top up a token package – or wait for your next subscription month, which brings new subscription tokens.")
               : grund === "trial" ? t(`Mit ${plusName} übst du weiter – jederzeit kündbar.`, `With ${plusName} you keep practising – cancel anytime.`)
                 : t("Du hast diesen Monat fleissig geübt! Mit einem Token-Paket geht es sofort weiter – oder du wartest auf den nächsten Monat (dann gibt es wieder 50 Gratis-Tokens).", "You've practiced a lot this month! With a token package you can continue right away – or wait for next month (another 50 free tokens).");
             return (

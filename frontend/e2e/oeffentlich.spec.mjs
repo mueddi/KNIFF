@@ -38,7 +38,7 @@ test("Stufen-Reiter und Monat/Jahr-Umschalter reagieren", async ({ page, fehler 
   await expect(page.getByText("CHF 89.–")).toBeVisible();
   await expect(page.getByText(/gespart/)).toBeVisible();
   await page.getByText("Was kostet Kniff?").click();
-  await expect(page.getByText(/unverbrauchte Tokens bleiben/).first()).toBeVisible();
+  await expect(page.getByText(/Darin sind jeden Monat 600 Tokens enthalten/).first()).toBeVisible();
 });
 
 test("Englisch umschalten uebersetzt die Startseite", async ({ page, fehler }) => {
