@@ -76,6 +76,12 @@ Drei Schichten, alle laufen im Pull Request und vor jedem Deploy (`ci.yml`):
   Anmeldung nur die Liste `OEFFENTLICH`, Admin nur für Admins, Müll nie 500,
   fremde Daten bleiben fremd. Eine neue öffentliche Schnittstelle muss dort
   bewusst eingetragen werden.
+* **Backend auf Postgres** (`backend-postgres`): dieselben Tests gegen eine
+  echte Postgres 17 wie in der Produktion (`TEST_DATABASE_URL`). Nur hier
+  zeigen sich verlorene Abbuchungen bei gleichzeitigen Anfragen
+  (`tests/test_gleichzeitig.py`) – SQLite sperrt die ganze Datei und
+  verdeckt sie. Lokal: Postgres 16 liegt im Container unter
+  `/usr/lib/postgresql/16/bin`.
 * **Browser** (`e2e`, `frontend/e2e/`): Chromium bedient die gebaute App mit
   Mock-Tutor und frischer SQLite-Datei. Jeder JS-Absturz, jedes
   `console.error`, jede 5xx-Antwort macht den Test rot. Neue Seite oder neuer
