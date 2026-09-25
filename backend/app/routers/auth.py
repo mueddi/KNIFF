@@ -384,8 +384,9 @@ def delete_account(
     """Konto samt Daten endgültig löschen (Datenschutz-Selbstbedienung).
 
     Bestätigung per Passwort; kam der Login über einen Mail-Link (via=email),
-    ist der Besitz der Mailbox bereits bewiesen. Zahlungsbelege bleiben bei
-    Stripe erhalten (Buchhaltung) – lokal wird alles entfernt."""
+    ist der Besitz der Mailbox bereits bewiesen. Ein laufendes Abo wird vorher
+    bei Stripe beendet (pay.abo_vor_loeschung_beenden). Zahlungsbelege bleiben
+    bei Stripe erhalten (Buchhaltung) – lokal wird alles entfernt."""
     token_payload = decode_access_token(creds.credentials) if creds else None
     via_email = bool(token_payload) and token_payload.get("via") == "email"
     if user.password_hash and not via_email:
@@ -394,6 +395,9 @@ def delete_account(
     if user.is_admin:
         raise HTTPException(status.HTTP_403_FORBIDDEN,
                             "Betreiber-Konten können sich nicht selbst löschen.")
+    # Zuerst das Abo bei Stripe beenden – scheitert das, bleibt das Konto.
+    from .pay import abo_vor_loeschung_beenden
+    abo_vor_loeschung_beenden(user)
 
     from ..models import (
         ApiUsage, Attempt, Exam, ExamItem, Exercise, Feedback, Grade, Message,

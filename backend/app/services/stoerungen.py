@@ -179,6 +179,18 @@ REGELN: list[Regel] = [
            "gutschreiben (Admin → Nutzer). Bei «Signatur»: STRIPE_WEBHOOK_SECRET pruefen.",
            "Find the session in the Stripe dashboard and credit the user by hand (Admin → "
            "Users). For \"signature\": check STRIPE_WEBHOOK_SECRET.")),
+    Regel("zahlung", "zahlung", None, "handeln",
+          ("Zahlung oder Abo braucht Handarbeit", "Payment or subscription needs manual work"),
+          ("Bei Stripe ist etwas passiert, das die App nicht allein erledigen konnte – zum "
+           "Beispiel liess sich ein Abo vor einer Kontoloeschung nicht beenden (das Konto "
+           "blieb deshalb bestehen), oder eine Zahlung wurde erstattet oder angefochten.",
+           "Something happened at Stripe that the app could not finish on its own – e.g. a "
+           "subscription could not be ended before an account deletion (so the account was "
+           "kept), or a payment was refunded or disputed."),
+          ("Meldungstext lesen und im Stripe-Dashboard das genannte Abo bzw. die Zahlung "
+           "nachsehen; wenn noetig dort von Hand beenden oder erstatten.",
+           "Read the message and look up the named subscription or payment in the Stripe "
+           "dashboard; end or refund it there by hand if needed.")),
     Regel("mail", "mail", None, "handeln",
           ("Mail nicht verschickt", "Mail not sent"),
           ("Eine Bestaetigungs- oder Login-Mail ist nicht rausgegangen. Wer sich gerade "
