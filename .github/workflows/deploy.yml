@@ -19,6 +19,9 @@ jobs:
   # cwd und ungepinntem pytest und brachen anders als im PR (Lauf 114).
   test:
     uses: ./.github/workflows/ci.yml
+    # Ohne das bekaemen die Tests beim Deploy keine Secrets (z.B. den
+    # Stripe-Test-Schluessel) und wuerden den echten Stripe-Test auslassen.
+    secrets: inherit
 
   deploy:
     runs-on: ubuntu-latest
