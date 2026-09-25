@@ -66,7 +66,27 @@ Zweig  →  Vercel baut automatisch eine Vorschau  →  er schaut sie an
 ```
 cd backend && python -m pytest -q          # müssen alle grün sein
 cd frontend && npm run build               # enthält die Browser-Dialog-Bremse
+cd frontend && npm run test:e2e            # Browser-Tests (Playwright, ~1 Min.)
 ```
+
+Drei Schichten, alle laufen im Pull Request und vor jedem Deploy (`ci.yml`):
+
+* **Backend** (`backend-tests`): Einzeltests je Bereich, dazu
+  `tests/test_routen_sicherheit.py` über **alle** Schnittstellen – ohne
+  Anmeldung nur die Liste `OEFFENTLICH`, Admin nur für Admins, Müll nie 500,
+  fremde Daten bleiben fremd. Eine neue öffentliche Schnittstelle muss dort
+  bewusst eingetragen werden.
+* **Browser** (`e2e`, `frontend/e2e/`): Chromium bedient die gebaute App mit
+  Mock-Tutor und frischer SQLite-Datei. Jeder JS-Absturz, jedes
+  `console.error`, jede 5xx-Antwort macht den Test rot. Neue Seite oder neuer
+  Ablauf → hier einen Test dazu.
+* **Rauchtest** (`deploy.yml`, nach dem Deploy gegen kniff.app): Datenbank,
+  App-Paket, Unterseiten, Preise, Zugriffsschutz, Anmeldung, Stripe-Checkout.
+
+In einer Cloud-Sitzung laufen die Browser-Tests mit
+`E2E_PYTHON=/tmp/kniff-venv/bin/python PLAYWRIGHT_CHROMIUM_PATH=/opt/pw-browsers/chromium-1194/chrome-linux/chrome npm run test:e2e`.
+Ein Test ist erst etwas wert, wenn er rot wird, sobald man den Fehler wieder
+einbaut – bei neuen Tests einmal gegenprüfen.
 
 Bei reinen Streichungen darf **kein** bestehender Test angepasst werden müssen –
 muss doch einer angefasst werden, war der Code nicht tot.

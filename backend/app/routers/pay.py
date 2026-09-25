@@ -518,9 +518,18 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         alert.notify("webhook", "Ungueltige Stripe-Signatur – falsches STRIPE_WEBHOOK_SECRET oder fremder Aufruf.")
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ungültige Signatur.")
 
-    event = json.loads(payload)
+    # Signiert heisst nicht wohlgeformt: kein JSON-Objekt -> 400 statt Absturz.
+    try:
+        event = json.loads(payload)
+    except ValueError:
+        event = None
+    if not isinstance(event, dict):
+        log.error("Webhook: Inhalt ist kein JSON-Objekt")
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, "Ungültiger Inhalt.")
     typ = event.get("type")
     obj = (event.get("data") or {}).get("object") or {}
+    if not isinstance(obj, dict):
+        obj = {}
     handler = {
         "checkout.session.completed": lambda: (_abo_abgeschlossen(db, obj) if obj.get("mode") == "subscription"
                                                else _paket_gutschrift(db, obj)),
