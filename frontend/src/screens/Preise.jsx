@@ -221,6 +221,19 @@ function PreisePlus({ quota }) {
     }
   }
 
+  // Token-Paket nachladen – nur mit Abo; derselbe Topf, nichts verfaellt.
+  async function nachladen(paket) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const res = await api.post("/api/pay/tokens", { paket });
+      window.location.href = res.url;
+    } catch (e) {
+      setNote({ type: "error", text: e.message });
+      setBusy(false);
+    }
+  }
+
   const name = quota.plus_name;
   const monat = chf(quota.preise.monat);
   const jahr = chf(quota.preise.jahr);
@@ -252,10 +265,10 @@ function PreisePlus({ quota }) {
         </div>
       )}
       <div style={{ textAlign: "center", marginBottom: 28 }}>
-        <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.025em", marginBottom: 8 }}>{t("Gratis probieren. Dann so viel üben, wie du willst.", "Try it for free. Then practise as much as you like.")}</div>
+        <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.025em", marginBottom: 8 }}>{t("Gratis probieren. Dann weiterüben mit Kniff Plus.", "Try it for free. Then keep practising with Kniff Plus.")}</div>
         <div style={{ fontSize: 14, color: "#6b7280", maxWidth: "60ch", margin: "0 auto" }}>
-          {t(`Die ersten ${quota.trial_tasks} Aufgaben sind geschenkt. Danach kostet ${name} weniger als eine Nachhilfestunde im Monat – und ist jederzeit kündbar.`,
-             `The first ${quota.trial_tasks} tasks are on us. After that ${name} costs less than one tutoring lesson a month – and you can cancel anytime.`)}
+          {t(`Die ersten ${quota.trial_tasks} Aufgaben sind geschenkt. Danach kostet ${name} weniger als eine Nachhilfestunde im Monat – mit ${quota.plus_tokens_monat} Tokens im Monat, jederzeit kündbar.`,
+             `The first ${quota.trial_tasks} tasks are on us. After that ${name} costs less than one tutoring lesson a month – with ${quota.plus_tokens_monat} tokens a month, cancel anytime.`)}
         </div>
       </div>
 
@@ -299,7 +312,8 @@ function PreisePlus({ quota }) {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 18 }}>
-            <Feature color="#8be0a4">{t("So viel üben, wie du willst", "Practise as much as you like")}</Feature>
+            <Feature color="#8be0a4">{t(`${quota.plus_tokens_monat} Tokens im Monat – rund 35 bis 40 Aufgaben`, `${quota.plus_tokens_monat} tokens a month – around 35 to 40 tasks`)}</Feature>
+            <Feature color="#8be0a4">{t("Unverbrauchte Tokens bleiben · mehr gibt es als Paket dazu", "Unused tokens carry over · more available as a package")}</Feature>
             <Feature color="#8be0a4">{t("Foto, Stift, Aufgabensammlung, Probeprüfungen", "Photo, pen, task collection, mock exams")}</Feature>
             <Feature color="#8be0a4">{t("Elternansicht inklusive", "Parent view included")}</Feature>
             <Feature color="#8be0a4">{t("Karte oder TWINT · läuft bis zum Ende der bezahlten Zeit", "Card or TWINT · runs until the end of the paid period")}</Feature>
@@ -338,9 +352,29 @@ function PreisePlus({ quota }) {
           </a>
         </div>
       </div>
-      <div style={{ maxWidth: 920, margin: "22px auto 0", fontSize: 12, color: "#9aa0ab", textAlign: "center", lineHeight: 1.6 }}>
-        {t(`Fair-Use: ${name} ist für Menschen gemacht. Bei aussergewöhnlich hoher Nutzung pausiert das Konto bis zum Monatsanfang – im Alltag merkt das niemand.`,
-           `Fair use: ${name} is made for people. With exceptionally heavy use the account pauses until the start of the next month – nobody notices this in everyday use.`)}
+      {/* Nachladen: nur mit Abo – ohne Abo bleibt die Karte erklaerend, ohne Knoepfe */}
+      <div style={{ ...karte, maxWidth: 920, margin: "22px auto 0" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
+          <div style={{ fontSize: 14, fontWeight: 700 }}>⚡ {t("Tokens nachladen", "Top up tokens")}</div>
+          {istPlus && <div style={{ fontSize: 12.5, color: "#6b7280" }}>{t(`Dein Guthaben: ${quota.token_balance} Tokens`, `Your balance: ${quota.token_balance} tokens`)}</div>}
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.55, marginBottom: 14 }}>
+          {istPlus
+            ? t("Reichen die Abo-Tokens einmal nicht: ein Paket landet sofort auf deinem Guthaben und verfällt nie.", "If the subscription tokens run out: a package lands on your balance right away and never expires.")
+            : t(`Token-Pakete gibt es zusammen mit ${name} – als Nachschub, wenn die ${quota.plus_tokens_monat} Tokens im Monat einmal nicht reichen.`, `Token packages come with ${name} – as a top-up when the ${quota.plus_tokens_monat} tokens a month are not enough.`)}
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>
+          {(quota.pakete || []).map((p) => (
+            <button key={p.key} onClick={() => nachladen(p.key)} disabled={!istPlus || busy || aboAktiv === false}
+              style={{ border: "1px solid #e7e8ee", borderRadius: 12, padding: "12px 10px", background: "#fff", cursor: istPlus ? "pointer" : "default", opacity: istPlus && aboAktiv !== false ? 1 : 0.55, textAlign: "center" }}>
+              <div style={{ fontSize: 18, fontWeight: 800, letterSpacing: "-.02em" }}>CHF {chf(p.rappen)}</div>
+              <div style={{ fontSize: 12.5, color: "#6b7280" }}>{p.tokens} Tokens</div>
+            </button>
+          ))}
+        </div>
+      </div>
+      <div style={{ maxWidth: 920, margin: "18px auto 0", fontSize: 12, color: "#9aa0ab", textAlign: "center", lineHeight: 1.6 }}>
+        {t("1 Token = 1 Rappen KI-Leistung. Eine Aufgabe braucht meist 10 bis 20 Tokens, ein Foto etwa 2.", "1 token = 1 Rappen of AI computation. A task usually takes 10 to 20 tokens, a photo about 2.")}
       </div>
     </div>
   );

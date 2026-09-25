@@ -142,7 +142,7 @@ def pruefung_erzeugen(topic_id: int, user: User = Depends(require_student),
         if kstufe != "school":
             charged = usage.charged_tokens(
                 usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
-            quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
+            quota.charge(db, user.id, charged, vom_guthaben=kstufe in ("guthaben", "plus"))
         usage.record(db, "pruefung", usage_out.get("model", ""), usage_out["usage"],
                      user_id=user.id, charged=charged)
     db.commit()

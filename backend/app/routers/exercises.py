@@ -127,7 +127,7 @@ async def ocr_upload(request: Request, file: UploadFile = File(...),
         kstufe = quota.stufe(db, user)
         if kstufe != "school":
             charged = usage.charged_tokens(usage.cost_usd(last["model"], last["usage"]))
-            quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
+            quota.charge(db, user.id, charged, vom_guthaben=kstufe in ("guthaben", "plus"))
         usage.record(db, "ocr", last["model"], last["usage"], user_id=user.id, charged=charged)
     db.commit()
     result.image_path = f"/api/exercises/images/{token}"
@@ -212,7 +212,7 @@ def _generate_task_text(db: Session, user: User, topic_name: str | None) -> str:
     kstufe = quota.stufe(db, user)
     if kstufe != "school":
         charged = usage.charged_tokens(usage.cost_usd(settings.anthropic_model_default, resp.usage))
-        quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
+        quota.charge(db, user.id, charged, vom_guthaben=kstufe in ("guthaben", "plus"))
     usage.record(db, "generiert", settings.anthropic_model_default, resp.usage,
                  user_id=user.id, charged=charged)
     if not text or len(text) > 1000:
@@ -497,7 +497,7 @@ def create_variant(exercise_id: int, user: User = Depends(require_student), db: 
     kstufe = quota.stufe(db, user)
     if kstufe != "school":
         charged = usage.charged_tokens(usage.cost_usd(settings.anthropic_model_default, resp.usage))
-        quota.charge(db, user.id, charged, vom_guthaben=kstufe == "guthaben")
+        quota.charge(db, user.id, charged, vom_guthaben=kstufe in ("guthaben", "plus"))
     usage.record(db, "variante", settings.anthropic_model_default, resp.usage,
                  user_id=user.id, exercise_id=new_ex.id, charged=charged)
     return _start_attempt_state(db, new_ex, user)

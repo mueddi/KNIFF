@@ -86,28 +86,37 @@ def test_nach_der_probe_zahlt_altes_guthaben(client):
     assert _fresh("mia@test.ch").token_balance == 15
 
 
-def test_plus_ist_unbegrenzt_bis_zur_fair_use_grenze(client, monkeypatch):
+def test_plus_zahlt_vom_guthaben_und_sperrt_bei_null(client):
+    """Das Abo ist kein Freifahrschein: es schreibt Tokens gut, und die werden
+    abgebucht. Leer heisst zu – mit dem Grund plus_leer, damit die Oberflaeche
+    den Nachkauf anbietet statt das Abo."""
     headers = register_pw(client, "mia@test.ch")
     _user("mia@test.ch", abo_bis=datetime.utcnow() + timedelta(days=20), abo_intervall="monat", token_balance=50)
     for _ in range(5):  # weit ueber die Probe hinaus
         assert _starten(client, headers, _aufgabe(client, headers)).status_code == 201
     q = _quota(client, headers)
-    assert q["stufe"] == "plus" and q["remaining"] == 10**9 and q["abo_intervall"] == "monat"
-    # Plus bucht das alte Guthaben nicht an, zaehlt aber den Monat
+    assert q["stufe"] == "plus" and q["remaining"] == 50 and q["abo_intervall"] == "monat"
+    assert q["plus_tokens_monat"] == settings.plus_tokens_monat
+    assert [p["key"] for p in q["pakete"]] == ["schnupper", "starter", "power"]
+    assert 0 < q["percent_used"] < 100  # 50 von 600 einer Monatsgutschrift uebrig
+    naechste = _aufgabe(client, headers)  # solange noch Tokens da sind
+    # Plus bucht vom Guthaben ab und zaehlt den Monat mit
     with SessionLocal() as db:
-        charge(db, _fresh("mia@test.ch").id, 40, vom_guthaben=False)
+        charge(db, _fresh("mia@test.ch").id, 50, vom_guthaben=True)
         db.commit()
     u = _fresh("mia@test.ch")
-    assert (u.token_balance, u.free_used_tokens) == (50, 40)
-    # Fair-Use: ab der Grenze freundlich zu, ohne Verkaufsversuch
-    naechste = _aufgabe(client, headers)
-    monkeypatch.setattr(settings, "plus_monatslimit_tokens", 40)
+    assert (u.token_balance, u.free_used_tokens) == (0, 50)
+    # Leer: zu, mit Nachkauf-Grund, Abo bleibt die Stufe
     r = _starten(client, headers, naechste)
     assert r.status_code == 402
-    assert r.headers["x-kniff-grund"] == "fairuse"
-    assert "Plus" not in r.json()["detail"]
-    assert _quota(client, headers)["percent_used"] == 100
+    assert r.headers["x-kniff-grund"] == "plus_leer"
+    assert "Token-Paket" in r.json()["detail"]
+    q = _quota(client, headers)
+    assert q["stufe"] == "plus" and q["remaining"] == 0 and q["percent_used"] == 100
     assert client.post("/api/exercises", headers=headers, json={"text": "y=2"}).status_code == 402
+    # Angesammelt oder nachgekauft: mehr als eine Monatsgutschrift zaehlt als voll
+    _user("mia@test.ch", token_balance=settings.plus_tokens_monat + 300)
+    assert _quota(client, headers)["percent_used"] == 0
 
 
 def test_abgelaufenes_abo_ist_kein_plus(client):

@@ -368,7 +368,7 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                         charged = usage.charged_tokens(
                             usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
                         quota.charge(s, user_id_local, charged,
-                                     vom_guthaben=stufe_local == "guthaben")
+                                     vom_guthaben=stufe_local in ("guthaben", "plus"))
                     usage.record(s, "chat", usage_out.get("model", ""), usage_out["usage"],
                                  user_id=user_id_local, exercise_id=exercise_id_local,
                                  charged=charged)

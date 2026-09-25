@@ -1,16 +1,18 @@
-"""Kniff Plus – Abo über Stripe Checkout.
+"""Kniff Plus – Abo über Stripe Checkout, Token-Pakete als Nachschub.
 
 Ablauf: Frontend ruft /checkout auf -> Stripe-Bezahlseite (Karte/TWINT,
 mode=subscription) -> Stripe meldet per signiertem Webhook, was mit dem Abo
 passiert (abgeschlossen, verlaengert, gekuendigt, beendet) -> abo_bis am
-Konto wird nachgefuehrt. Kuendigen laeuft ueber die eigenen Endpunkte
-(cancel_at_period_end), kein Stripe-Kundenportal noetig.
+Konto wird nachgefuehrt und jede bezahlte Rechnung schreibt die Abo-Tokens
+gut (plus_tokens_monat, Jahresabo zwoelffach). Kuendigen laeuft ueber die
+eigenen Endpunkte (cancel_at_period_end), kein Stripe-Kundenportal noetig.
+
+Token-Pakete (/tokens, mode=payment) gibt es nur mit aktivem Abo; sie landen
+im selben Guthaben wie die Abo-Gutschrift, nichts davon verfaellt.
 
 Die Stripe-API wird direkt über httpx angesprochen (form-encoded REST), die
 Webhook-Signatur (HMAC-SHA256) wird mit der Standardbibliothek geprüft –
-keine zusätzliche SDK-Abhängigkeit. Die alten Token-Pakete (Einmal-Kauf)
-kann man nicht mehr kaufen; ihr Webhook-Zweig bleibt, damit ein verspaeteter
-Stripe-Retry weiterhin sauber verbucht wird.
+keine zusätzliche SDK-Abhängigkeit.
 """
 import hashlib
 import hmac
@@ -31,20 +33,12 @@ from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
 from ..models import ParentLink, Payment, Plan, Role, StripeEvent, User
-from ..schemas import AboRequest, CheckoutRequest
+from ..schemas import AboRequest, CheckoutRequest, TokenKaufRequest
 from ..services import alert, quota
+from ..services.quota import PAKETE as PACKAGES
 
 router = APIRouter(prefix="/api/pay", tags=["pay"])
 log = logging.getLogger("schrittweise.pay")
-
-# Die frueheren Token-Pakete: nicht mehr kaufbar, nur noch fuer den
-# Webhook-Zweig mode=payment (verspaetete Retries alter Kaeufe).
-# 1 Token = 1 Rappen verrechnete KI-Leistung – Paketmenge = Preis in Rappen.
-PACKAGES = {
-    "schnupper": {"tokens": 200, "rappen": 200, "name": "Kniff Schnupper-Paket – 200 Tokens"},
-    "starter": {"tokens": 900, "rappen": 900, "name": "Kniff Starter-Paket – 900 Tokens"},
-    "power": {"tokens": 1900, "rappen": 1900, "name": "Kniff Power-Paket – 1900 Tokens"},
-}
 
 
 def _return_base(request: Request | None) -> str:
@@ -156,6 +150,8 @@ def preise():
         "monat_rappen": settings.plus_preis_monat_rappen,
         "jahr_rappen": settings.plus_preis_jahr_rappen,
         "trial_tasks": settings.trial_tasks,
+        "plus_tokens_monat": settings.plus_tokens_monat,
+        "pakete": [{"key": k, "tokens": p["tokens"], "rappen": p["rappen"]} for k, p in PACKAGES.items()],
         "free_monthly_tokens": settings.free_monthly_tokens,
     }
 
@@ -212,6 +208,73 @@ def create_checkout(request: Request, payload: CheckoutRequest | None = None,
         data["customer_email"] = zahler.email
     session = _stripe("POST", "/v1/checkout/sessions", data)
     return {"url": session["url"]}
+
+
+@router.post("/tokens")
+def tokens_kaufen(request: Request, payload: TokenKaufRequest | None = None,
+                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Token-Paket nachkaufen – nur mit aktivem Abo. Eltern kaufen mit
+    student_id fuer ihr Kind. Gutschrift kommt per Webhook (_paket_gutschrift)."""
+    lang = i18n.lang_of(user)
+    zahler = user
+    user = _zielkonto(db, zahler, payload.student_id if payload else None)
+    if quota.blocked_unverified(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN,
+                            i18n.t(lang, "Bitte bestätige zuerst deine E-Mail-Adresse, bevor du kaufst – schau in dein Postfach.", "Please confirm your email address before buying – check your inbox."))
+    if not settings.abo_enabled or not settings.payments_enabled:
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE,
+                            i18n.t(lang, "Die Zahlung ist noch nicht freigeschaltet – es wurde nichts belastet.", "Payments are not enabled yet – nothing was charged."))
+    key = (payload.paket if payload else "starter") or "starter"
+    pkg = PACKAGES.get(key)
+    if pkg is None:
+        raise HTTPException(status.HTTP_400_BAD_REQUEST, i18n.t(lang, "Unbekanntes Paket.", "Unknown package."))
+    if not quota.plus_aktiv(user):
+        raise HTTPException(status.HTTP_409_CONFLICT,
+                            i18n.t(lang, f"Token-Pakete gibt es nur zusammen mit {settings.plus_name}.", f"Token packages are only available together with {settings.plus_name}."))
+    base = _return_base(request)
+    zurueck = f"{base}/eltern" if zahler.role == Role.parent else f"{base}/app/einstellungen"
+    data = {
+        "mode": "payment",
+        "success_url": f"{zurueck}?zahlung=ok",
+        "cancel_url": f"{zurueck}?zahlung=abbruch",
+        "client_reference_id": str(user.id),
+        "metadata[user_id]": str(user.id),
+        "metadata[zahler_id]": str(zahler.id),
+        "metadata[package]": key,
+        "line_items[0][quantity]": "1",
+        "line_items[0][price_data][currency]": "chf",
+        "line_items[0][price_data][unit_amount]": str(pkg["rappen"]),
+        "line_items[0][price_data][product_data][name]": pkg["name"],
+    }
+    if user.stripe_customer_id:
+        data["customer"] = user.stripe_customer_id
+    else:
+        data["customer_email"] = zahler.email
+    session = _stripe("POST", "/v1/checkout/sessions", data)
+    return {"url": session["url"]}
+
+
+def _abo_tokens(intervall: str | None) -> int:
+    """Was eine bezahlte Abo-Rechnung gutschreibt: ein Monat, beim Jahresabo
+    zwoelf auf einmal."""
+    return settings.plus_tokens_monat * (12 if intervall == "jahr" else 1)
+
+
+def _gutschrift(db: Session, user: User, kennung: str, betrag: int | None, tokens: int) -> bool:
+    """Tokens gutschreiben, genau einmal pro Kennung (Rechnungs- oder
+    Session-ID): die Payment-Zeile mit unique session_id ist der Riegel.
+    Rueckgabe: ob gutgeschrieben wurde."""
+    db.add(Payment(user_id=user.id, session_id=kennung,
+                   amount_rappen=betrag if isinstance(betrag, int) else 0, tokens=tokens))
+    try:
+        db.flush()
+    except IntegrityError:
+        db.rollback()
+        return False
+    if tokens > 0:
+        db.execute(update(User).where(User.id == user.id)
+                   .values(token_balance=User.token_balance + tokens))
+    return True
 
 
 def _abo_umstellen(user: User, db: Session, kuendigen: bool) -> dict:
@@ -316,6 +379,14 @@ def _abo_abgeschlossen(db: Session, session: dict) -> None:
         # Nie ein bezahltes Kind aussperren: vorlaeufig; invoice.paid korrigiert.
         ende = _utcnow_naiv() + timedelta(days=367 if intervall == "jahr" else 32)
     user.abo_bis = ende
+    # Erste Gutschrift. Kennung ist die Rechnung der Session, damit das
+    # invoice.paid derselben Rechnung nicht ein zweites Mal gutschreibt -
+    # egal, welches der beiden Ereignisse zuerst eintrifft.
+    kennung = session.get("invoice") if isinstance(session.get("invoice"), str) else session.get("id")
+    if kennung:
+        tokens = _abo_tokens(intervall)
+        if _gutschrift(db, user, kennung, session.get("amount_total"), tokens):
+            log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (%s)", user.id, tokens, kennung)
     log.info("Abo abgeschlossen: Nutzer %s, %s, bis %s", user.id, intervall, ende)
 
 
@@ -343,14 +414,18 @@ def _abo_verlaengert(db: Session, invoice: dict) -> None:
             pass
     if ende and (user.abo_bis is None or ende > user.abo_bis):
         user.abo_bis = ende
-    betrag = invoice.get("amount_paid")
-    if invoice.get("id") and isinstance(betrag, int):
-        db.add(Payment(user_id=user.id, session_id=invoice["id"], amount_rappen=betrag, tokens=0))
-        try:
-            db.flush()
-        except IntegrityError:
-            db.rollback()
-            return
+    # Abo-Tokens gutschreiben: Intervall aus der Rechnungszeile, sonst vom Konto.
+    intervall = user.abo_intervall
+    for line in lines:
+        recurring = ((line.get("price") or {}).get("recurring") or {}) or (line.get("plan") or {})
+        if recurring.get("interval") in ("month", "year"):
+            intervall = "jahr" if recurring["interval"] == "year" else "monat"
+            break
+    if invoice.get("id"):
+        tokens = _abo_tokens(intervall)
+        if not _gutschrift(db, user, invoice["id"], invoice.get("amount_paid"), tokens):
+            return  # schon verbucht (z.B. ueber checkout.session.completed)
+        log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (Rechnung %s)", user.id, tokens, invoice["id"])
     log.info("Abo verlaengert: Nutzer %s bis %s (Rechnung %s)", user.id, user.abo_bis, invoice.get("id"))
 
 
@@ -376,7 +451,8 @@ def _abo_geaendert(db: Session, sub: dict, geloescht: bool) -> None:
 
 
 def _paket_gutschrift(db: Session, session: dict) -> None:
-    """Alt: Einmal-Kauf eines Token-Pakets (mode=payment)."""
+    """Einmal-Kauf eines Token-Pakets (mode=payment): Nachschub fuer
+    Abonnenten, und weiterhin verspaetete Retries alter Kaeufe."""
     if session.get("payment_status") != "paid":
         return
     # Paket bestimmen und Betrag/Waehrung HART validieren: gutgeschrieben wird
@@ -432,8 +508,8 @@ def _paket_gutschrift(db: Session, session: dict) -> None:
 
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
-    """Von Stripe aufgerufen. Fuehrt Abos nach (und schreibt alte Paket-Kaeufe
-    gut) – idempotent pro Ereignis-ID, immer 200 (sonst Retry-Sturm)."""
+    """Von Stripe aufgerufen. Fuehrt Abos nach, schreibt Abo-Tokens und
+    Paket-Kaeufe gut – idempotent pro Ereignis-ID, immer 200 (sonst Retry-Sturm)."""
     if not settings.payments_enabled:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Zahlung nicht konfiguriert.")
     payload = await request.body()

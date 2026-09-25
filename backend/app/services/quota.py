@@ -3,19 +3,22 @@
 Mit Kniff Plus (settings.abo_enabled) gilt die Reihenfolge
 
     school    Betreiber- und Schul-Konten: nie eine Abbuchung
-    plus      Abo aktiv (abo_bis liegt in der Zukunft); stille Fair-Use-Grenze
-              pro Monat (plus_monatslimit_tokens)
+    plus      Abo aktiv (abo_bis liegt in der Zukunft). Das Abo schreibt jeden
+              Abrechnungsmonat plus_tokens_monat Tokens aufs Guthaben
+              (routers/pay.py, Webhook); abgebucht wird vom Guthaben. Ist es
+              leer, ist zu - Nachschub gibt es als Token-Paket (nur mit Abo)
+              oder mit der naechsten Gutschrift. Unverbrauchte Tokens bleiben.
     trial     die ersten trial_tasks AUFGABEN sind gratis - einmalig, nicht
               monatlich; weitere Runden und Wiederholungen dieser Aufgaben
               bleiben frei
-    guthaben  altes Token-Guthaben (Einmal-Pakete) wird weiter abgebucht
+    guthaben  Token-Guthaben ohne Abo (alte Einmal-Pakete) wird weiter abgebucht
     gesperrt  nichts davon
 
 Ohne den Schalter verhaelt sich alles wie bisher: 50 Gratis-Tokens im Monat
 (stufe "gratis"), danach das Guthaben. 1 Token = 1 Rappen verrechnete
 KI-Leistung; abgebucht wird nach echten Kosten mal Sicherheitsmarge
 (services/usage.charged_tokens). Der Monatszaehler free_used_tokens/free_month
-zaehlt mit Plus den GESAMTEN Verbrauch (Fair-Use), nicht nur den Gratis-Anteil.
+zaehlt mit Plus den GESAMTEN Verbrauch (Anzeige), nicht nur den Gratis-Anteil.
 """
 from __future__ import annotations
 
@@ -29,6 +32,14 @@ from .. import i18n
 from ..config import settings
 from ..models import Attempt, Plan, User
 from .timezone import LOCAL_TZ
+
+# Nachkauf-Pakete fuer Abonnenten. 1 Token = 1 Rappen - Paketmenge = Preis in
+# Rappen. Derselbe Topf wie die Abo-Gutschrift; nichts davon verfaellt.
+PAKETE = {
+    "schnupper": {"tokens": 200, "rappen": 200, "name": "Kniff Schnupper-Paket – 200 Tokens"},
+    "starter": {"tokens": 900, "rappen": 900, "name": "Kniff Starter-Paket – 900 Tokens"},
+    "power": {"tokens": 1900, "rappen": 1900, "name": "Kniff Power-Paket – 1900 Tokens"},
+}
 
 
 def current_month() -> str:
@@ -105,14 +116,14 @@ def can_use_ki(db: Session, user: User, exercise_id: int | None = None) -> bool:
     """Darf dieses Konto gerade eine KI-Leistung ausloesen? (rein lesend)"""
     s = stufe(db, user, exercise_id)
     if s == "plus":
-        return _effective_free_used(user) < settings.plus_monatslimit_tokens
+        return user.token_balance > 0
     return s != "gesperrt"
 
 
 def sperr_grund(db: Session, user: User, exercise_id: int | None = None) -> str:
-    """Warum ist es gerade gesperrt? "fairuse" | "trial" | "guthaben" """
+    """Warum ist es gerade gesperrt? "plus_leer" | "trial" | "guthaben" """
     if stufe(db, user, exercise_id) == "plus":
-        return "fairuse"
+        return "plus_leer"
     if settings.abo_enabled:
         return "trial"
     return "guthaben"
@@ -122,10 +133,10 @@ def sperre(db: Session, user: User, lang: str, exercise_id: int | None = None) -
     """Die 402-Antwort mit passendem Text; der Grund steht im Header
     X-Kniff-Grund, damit die Oberflaeche die richtige Karte zeigt."""
     grund = sperr_grund(db, user, exercise_id)
-    if grund == "fairuse":
+    if grund == "plus_leer":
         text = i18n.t(lang,
-                      "Wow – du hast diesen Monat riesig viel geübt! Ab dem 1. geht es weiter.",
-                      "Wow – you practised a huge amount this month! It continues on the 1st.")
+                      "Deine Tokens sind aufgebraucht. Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.",
+                      "Your tokens are used up. Top up a token package – or wait for your subscription's next credit.")
     elif grund == "trial":
         text = i18n.t(lang,
                       f"Deine {settings.trial_tasks} Probe-Aufgaben sind aufgebraucht. Mit {settings.plus_name} übst du weiter – so viel du willst.",
@@ -147,8 +158,11 @@ def quota_state(db: Session, user: User) -> dict:
     if s == "school":
         remaining, percent = 10**9, 0
     elif s == "plus":
-        remaining = 10**9
-        percent = min(int(round(free_used / settings.plus_monatslimit_tokens * 100)), 100)
+        # Anzeige: wie viel von einer Monatsgutschrift ist noch da? Mehr als
+        # eine (angesammelt oder nachgekauft) zaehlt als «voll».
+        remaining = user.token_balance
+        monat = settings.plus_tokens_monat
+        percent = 0 if not monat or remaining >= monat else min(int(round((1 - remaining / monat) * 100)), 100)
     elif s == "trial":
         remaining = t_left
         percent = min(int(round(t_used / settings.trial_tasks * 100)), 100) if settings.trial_tasks else 100
@@ -177,7 +191,8 @@ def quota_state(db: Session, user: User) -> dict:
         "trial_used": t_used,
         "trial_left": t_left,
         "monat_verbraucht": free_used,
-        "plus_limit": settings.plus_monatslimit_tokens,
+        "plus_tokens_monat": settings.plus_tokens_monat,
+        "pakete": [{"key": k, "tokens": p["tokens"], "rappen": p["rappen"]} for k, p in PAKETE.items()],
         "abo_bis": user.abo_bis.isoformat() if user.abo_bis else None,
         "abo_gekuendigt": bool(user.abo_gekuendigt),
         "abo_intervall": user.abo_intervall,
@@ -197,9 +212,9 @@ def blocked_unverified(user: User) -> bool:
 def charge(db: Session, user_id: int, tokens: int, vom_guthaben: bool = True) -> None:
     """Bucht ``tokens`` ab.
 
-    Mit Kniff Plus: der Monatszaehler steigt immer (Fair-Use), das Guthaben
-    wird nur bei vom_guthaben abgebucht (Stufe "guthaben"). Ohne Schalter:
-    erst Gratis-Kontingent, Rest vom Guthaben.
+    Mit Kniff Plus: der Monatszaehler steigt immer (Anzeige), das Guthaben
+    wird nur bei vom_guthaben abgebucht (Stufen "plus" und "guthaben"; die
+    Probe ist gratis). Ohne Schalter: erst Gratis-Kontingent, Rest vom Guthaben.
 
     Alles in bedingten UPDATEs (alle Ausdruecke lesen die alten Zeilenwerte)
     – kein Doppel-Spend-Fenster bei parallelen Requests, laeuft auf SQLite

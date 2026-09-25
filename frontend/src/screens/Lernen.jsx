@@ -779,30 +779,28 @@ export default function Lernen() {
             }
             if (m.kind === "quota") {
               // Drei Gruende, drei Karten: Probe aufgebraucht (Plus anbieten),
-              // Fair-Use erreicht (freundlich, ohne Verkauf), altes Guthaben leer.
+              // Abo-Tokens leer (Paket nachladen), altes Guthaben leer.
               const grund = m.grund || (shell.quota?.abo_enabled ? "trial" : "guthaben");
               const plusName = shell.quota?.plus_name || "Kniff Plus";
-              const titel = grund === "fairuse"
-                ? t("🎉 Wow – du hast diesen Monat riesig viel geübt!", "🎉 Wow – you practised a huge amount this month!")
+              const titel = grund === "plus_leer"
+                ? t("⚡ Deine Tokens sind aufgebraucht", "⚡ Your tokens are used up")
                 : grund === "trial"
                   ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
                   : t("⚡ Dein Guthaben ist aufgebraucht", "⚡ Your balance is used up");
-              const text = grund === "fairuse"
-                ? t("Deine Nachricht wurde nicht gesendet. Ab dem 1. geht es weiter – bis dahin: gut gemacht.", "Your message was not sent. It continues on the 1st – until then: well done.")
+              const text = grund === "plus_leer"
+                ? t("Deine Nachricht wurde nicht gesendet. Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Your message was not sent. Top up a token package – or wait for your subscription's next credit.")
                 : grund === "trial"
-                  ? t(`Deine Nachricht wurde nicht gesendet. Mit ${plusName} übst du weiter – so viel du willst, jederzeit kündbar.`, `Your message was not sent. With ${plusName} you keep practising – as much as you like, cancel anytime.`)
+                  ? t(`Deine Nachricht wurde nicht gesendet. Mit ${plusName} übst du weiter – jederzeit kündbar.`, `Your message was not sent. With ${plusName} you keep practising – cancel anytime.`)
                   /* Bei einer Schnellantwort war das Eingabefeld nie gefuellt –
                      die alte Formulierung schickte einen auf die Suche. */
                   : t("Deine Nachricht wurde nicht gesendet. Lad Tokens oder warte auf die Gratis-Tokens vom nächsten Monat.", "Your message was not sent. Top up tokens or wait for next month's free tokens.");
               out.push(
                 <div key={m.id} style={{ alignSelf: "flex-start", maxWidth: 420, background: "#fffaf0", border: "1px solid #f0e2c4", borderRadius: 16, padding: "14px 16px" }}>
                   <div style={{ fontSize: 13.5, fontWeight: 700, marginBottom: 4 }}>{titel}</div>
-                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5, marginBottom: grund === "fairuse" ? 0 : 10 }}>{text}</div>
-                  {grund !== "fairuse" && (
-                    <button onClick={() => nav("/app/preise")} className="btn-primary" style={{ border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }}>
-                      {grund === "trial" ? t(`${plusName} aktivieren →`, `Activate ${plusName} →`) : t("Tokens laden →", "Top up tokens →")}
-                    </button>
-                  )}
+                  <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5, marginBottom: 10 }}>{text}</div>
+                  <button onClick={() => nav("/app/preise")} className="btn-primary" style={{ border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }}>
+                    {grund === "trial" ? t(`${plusName} aktivieren →`, `Activate ${plusName} →`) : grund === "plus_leer" ? t("Tokens nachladen →", "Top up tokens →") : t("Tokens laden →", "Top up tokens →")}
+                  </button>
                 </div>
               );
               continue;

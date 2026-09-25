@@ -1,23 +1,27 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useLang } from "../lib/i18n.jsx";
 
 // Startseite. Sie muss drei Fragen beantworten, bevor jemand auf «Anmelden»
 // drueckt: Was macht Kniff anders? Fuer wen ist es? Was kostet es – und ist
-// es sicher fuer mein Kind? Vorher standen hier nur das Versprechen und die
-// Elternansicht; alles andere musste man durch Ausprobieren herausfinden.
+// es sicher fuer mein Kind?
 //
-// Preise und Modell kommen von /api/pay/preise (config.py), damit die
-// Startseite nie etwas anderes verspricht als die App: mit dem Schalter
-// ABO_ENABLED gilt Kniff Plus (Probe in Aufgaben, Abo pro Kind), ohne ihn
-// das alte Modell (50 Gratis-Tokens im Monat, Einmal-Pakete). Solange die
-// Auskunft noch laedt, zeigt die Seite Kniff Plus.
+// Sie zeigt IMMER Kniff Plus (Probe in Aufgaben, Abo pro Kind mit Tokens im
+// Monat, Pakete dazu) – das ist das entschiedene Modell. Die Zahlen kommen
+// von /api/pay/preise (config.py), damit hier nie etwas anderes steht als in
+// der App; bis die Auskunft da ist, gelten die Standardwerte.
+//
+// Interaktiv statt Standbild: der Chat im Hero laesst sich durchspielen
+// (Antworten anklicken, die Hilfe-Leiter fuellt sich), die Stufen sind
+// Reiter, die Preise haben einen Monat/Jahr-Umschalter.
+// Alles ohne KI-Aufruf und ohne Konto – kostet nichts.
 
 const INDIGO = "#4f46e5";
 const TEXT_2 = "#4b5563";
 const TEXT_3 = "#6b7280";
 const TEXT_4 = "#9aa0ab";
+const TOKENS_PRO_AUFGABE = 16; // gemessen in der Produktion (KNIFF.md)
 
 function Badge({ children, color = TEXT_3 }) {
   return (
@@ -30,7 +34,7 @@ function Badge({ children, color = TEXT_3 }) {
 
 function Dot({ filled }) {
   return (
-    <span style={{ width: 8, height: 8, borderRadius: "50%", background: filled ? INDIGO : "#fff", border: filled ? "none" : "1.5px solid #c9ccf6" }} />
+    <span className={filled ? "landing-dot landing-dot-filled" : "landing-dot"} style={{ width: 8, height: 8, borderRadius: "50%", background: filled ? INDIGO : "#fff", border: filled ? "none" : "1.5px solid #c9ccf6", display: "inline-block" }} />
   );
 }
 
@@ -54,11 +58,12 @@ function Lead({ children }) {
   return <p style={{ margin: "0 0 28px", fontSize: 16.5, lineHeight: 1.6, color: TEXT_2, maxWidth: "58ch" }}>{children}</p>;
 }
 
-// Ein Abschnitt in voller Breite, Inhalt auf 1180px begrenzt
+// Ein Abschnitt in voller Breite, Inhalt auf 1180px begrenzt; blendet beim
+// Scrollen ein (Klasse landing-reveal, siehe theme.css).
 function Section({ children, tinted = false, id }) {
   return (
     <section id={id} style={{ background: tinted ? "#fbfbfd" : "#fff", borderTop: tinted ? "1px solid #eef0f3" : "none", borderBottom: tinted ? "1px solid #eef0f3" : "none" }}>
-      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "64px 40px" }} className="landing-section">
+      <div style={{ maxWidth: 1180, margin: "0 auto", padding: "64px 40px" }} className="landing-section landing-reveal">
         {children}
       </div>
     </section>
@@ -67,19 +72,303 @@ function Section({ children, tinted = false, id }) {
 
 const card = { background: "#fff", border: "1px solid #e7e8ee", borderRadius: 18, padding: "22px 22px 20px" };
 
+// ---------------------------------------------------------------------------
+// Spielbarer Chat: ein festes Drehbuch zur Aufgabe 3x + 5 = 20. Der Besucher
+// waehlt eine Antwort, der «Tutor» reagiert wie Kniff – Frage statt Loesung,
+// Betteln bringt nichts, nach zwei eigenen Schritten ist es geloest.
+// ---------------------------------------------------------------------------
+function DemoChat() {
+  const { t, lang } = useLang();
+  const en = lang === "en";
+  const DREHBUCH = {
+    start: {
+      tutor: en ? <>Solve for x: <i style={{ fontFamily: "Georgia,serif", fontSize: 17 }}>3x + 5 = 20</i>. Where would you start?</> : <>Löse nach x auf: <i style={{ fontFamily: "Georgia,serif", fontSize: 17 }}>3x + 5 = 20</i>. Wo würdest du anfangen?</>,
+      stufe: 0,
+      wahl: [
+        { text: t("ich weiss nöd wie afange", "i don't know how to start"), ziel: "frage" },
+        { text: t("sag mir einfach die lösung", "just tell me the answer"), ziel: "betteln" },
+        { text: t("−5 auf beiden Seiten", "−5 on both sides"), ziel: "minus" },
+      ],
+    },
+    frage: {
+      tutor: en ? <>No stress 🙂 Look at the left side: what is standing in the way next to the <b>3x</b>?</> : <>Kein Stress 🙂 Schau auf die linke Seite: Was steht da neben dem <b>3x</b> im Weg?</>,
+      stufe: 1,
+      wahl: [
+        { text: t("die +5?", "the +5?"), ziel: "tipp" },
+        { text: t("sag mir einfach die lösung", "just tell me the answer"), ziel: "betteln" },
+      ],
+    },
+    betteln: {
+      tutor: en ? <>Nice try 😄 That's exactly what I don't do. But I'll help you get there: what would have to disappear from the left side so that only <b>3x</b> remains?</> : <>Netter Versuch 😄 Genau das mache ich nicht. Aber ich helfe dir hin: Was müsste links verschwinden, damit nur noch <b>3x</b> dasteht?</>,
+      stufe: 1,
+      wahl: [
+        { text: t("die +5", "the +5"), ziel: "tipp" },
+        { text: t("keine ahnung", "no idea"), ziel: "tipp2" },
+      ],
+    },
+    tipp: {
+      tutor: en ? <>Exactly. And whatever you do on one side, you have to do on the other side too. So?</> : <>Genau. Und was du auf der einen Seite machst, musst du auch auf der anderen machen. Also?</>,
+      stufe: 2,
+      wahl: [
+        { text: t("−5 auf beiden Seiten → 3x = 15", "−5 on both sides → 3x = 15"), ziel: "minus" },
+        { text: t("+5 auf beiden Seiten?", "+5 on both sides?"), ziel: "falsch" },
+      ],
+    },
+    tipp2: {
+      tutor: en ? <>Then I'll show you the first step: −5 on both sides. What is left now?</> : <>Dann mache ich den ersten Schritt vor: −5 auf beiden Seiten. Was steht jetzt da?</>,
+      stufe: 3,
+      wahl: [
+        { text: "3x = 15", ziel: "minus" },
+        { text: "3x = 25", ziel: "falsch2" },
+      ],
+    },
+    falsch: {
+      tutor: en ? <>Hmm, then you'd get 3x + 10 = 25 – the 5 is still there. Try the opposite.</> : <>Hmm, dann hättest du 3x + 10 = 25 – die 5 ist immer noch da. Probier das Gegenteil.</>,
+      stufe: 2,
+      wahl: [{ text: t("−5 auf beiden Seiten → 3x = 15", "−5 on both sides → 3x = 15"), ziel: "minus" }],
+    },
+    falsch2: {
+      tutor: en ? <>Check again: 20 − 5 is …?</> : <>Rechne nochmal nach: 20 − 5 ist …?</>,
+      stufe: 3,
+      wahl: [{ text: "15, also 3x = 15", ziel: "minus" }],
+    },
+    minus: {
+      tutor: en ? <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ Checked.</span> Strong – the minus on both sides worked. Now the <b>x</b> is still stuck to the 3 – what do you do with that?</> : <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ Nachgerechnet.</span> Stark, das Minus auf beiden Seiten hat gesessen. Jetzt klebt das <b>x</b> noch an der 3 – was machst du damit?</>,
+      stufe: 2,
+      wahl: [
+        { text: t("durch 3 teilen → x = 5", "divide by 3 → x = 5"), ziel: "geloest" },
+        { text: t("−3 → x = 12?", "−3 → x = 12?"), ziel: "falsch3" },
+      ],
+    },
+    falsch3: {
+      tutor: en ? <>Careful: 3x means 3 <i>times</i> x. What undoes a multiplication?</> : <>Vorsicht: 3x heisst 3 <i>mal</i> x. Was macht ein Malnehmen rückgängig?</>,
+      stufe: 2,
+      wahl: [{ text: t("teilen! x = 5", "dividing! x = 5"), ziel: "geloest" }],
+    },
+    geloest: {
+      tutor: en ? <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ x = 5 – correct.</span> Check: 3·5 + 5 = 20 ✓. You did that yourself – I only asked questions.</> : <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ x = 5 – richtig.</span> Probe: 3·5 + 5 = 20 ✓. Das hast du selbst gerechnet – ich habe nur gefragt.</>,
+      stufe: 2,
+      wahl: [],
+      ende: true,
+    },
+  };
+
+  const [verlauf, setVerlauf] = useState([{ rolle: "tutor", knoten: "start" }]);
+  const [tippt, setTippt] = useState(false);
+  const [stufe, setStufe] = useState(0);
+  const listeRef = useRef(null);
+  // Die Antwortknoepfe haengen am letzten TUTOR-Eintrag. Waehrend Kniff
+  // «tippt», ist der letzte Eintrag die eigene Antwort ohne Kapitel – das
+  // stuerzte beim ersten Klick ab.
+  const letzterTutor = [...verlauf].reverse().find((e) => e.rolle === "tutor");
+  const aktuell = DREHBUCH[letzterTutor?.knoten] || DREHBUCH.start;
+  const fertig = !tippt && aktuell.ende;
+
+  useEffect(() => {
+    // beim Sprachwechsel von vorn, sonst mischen sich die Sprachen
+    setVerlauf([{ rolle: "tutor", knoten: "start" }]);
+    setStufe(0);
+    setTippt(false);
+  }, [lang]);
+
+  useEffect(() => {
+    const el = listeRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [verlauf, tippt]);
+
+  function antworten(w) {
+    if (tippt) return;
+    setVerlauf((v) => [...v, { rolle: "kind", text: w.text }]);
+    setTippt(true);
+    const dauer = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? 150 : 900;
+    setTimeout(() => {
+      setVerlauf((v) => [...v, { rolle: "tutor", knoten: w.ziel }]);
+      setStufe(Math.max(stufe, DREHBUCH[w.ziel].stufe));
+      setTippt(false);
+    }, dauer);
+  }
+
+  function nochmal() {
+    setVerlauf([{ rolle: "tutor", knoten: "start" }]);
+    setStufe(0);
+    setTippt(false);
+  }
+
+  const bubbleTutor = { alignSelf: "flex-start", background: "#fff", border: "1px solid #e7e8ee", borderRadius: 16, borderBottomLeftRadius: 5, boxShadow: "0 6px 16px rgba(40,40,90,.06)", padding: "11px 15px", fontSize: 13.5, maxWidth: "88%", lineHeight: 1.5 };
+  const bubbleKind = { alignSelf: "flex-end", background: "#6366f1", color: "#fff", borderRadius: 16, borderBottomRightRadius: 5, padding: "10px 15px", fontSize: 13.5, maxWidth: "84%" };
+
+  return (
+    <div style={{ position: "relative", zIndex: 1 }}>
+      <div style={{ background: "#fff", border: "1px solid #e7e8ee", borderRadius: 22, boxShadow: "0 2px 6px rgba(40,40,90,.06),0 30px 60px rgba(40,40,90,.16)", overflow: "hidden" }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "15px 18px", borderBottom: "1px solid #eef0f3" }}>
+          <div>
+            <div style={{ fontSize: 14, fontWeight: 700 }}>{t("Probier's aus", "Try it")}</div>
+            <div style={{ fontSize: 11.5, color: TEXT_4 }}>{t("Lineare Gleichungen · ohne Konto, ohne KI-Kosten", "Linear equations · no account, no AI costs")}</div>
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 9, background: "#eef0fe", borderRadius: 999, padding: "6px 12px" }} title={t("Hilfe-Leiter: so viel Hilfe war bisher nötig", "Help ladder: how much help was needed so far")}>
+            <span style={{ fontSize: 10.5, fontWeight: 700, color: INDIGO }}>{t("HILFE", "HELP")}</span>
+            <span style={{ display: "flex", gap: 4 }}>{[1, 2, 3, 4].map((i) => <Dot key={i} filled={i <= stufe} />)}</span>
+          </div>
+        </div>
+        <div ref={listeRef} style={{ background: "#f6f7fb", padding: 20, display: "flex", flexDirection: "column", gap: 12, height: 300, overflowY: "auto", scrollBehavior: "smooth" }}>
+          {verlauf.map((e, i) => (
+            <div key={i} className="popin" style={e.rolle === "tutor" ? bubbleTutor : bubbleKind}>
+              {e.rolle === "tutor" ? DREHBUCH[e.knoten].tutor : e.text}
+            </div>
+          ))}
+          {tippt && (
+            <div style={{ ...bubbleTutor, padding: "12px 16px" }} aria-label={t("Kniff schreibt", "Kniff is typing")}>
+              <span className="landing-typing"><i /><i /><i /></span>
+            </div>
+          )}
+        </div>
+        <div style={{ padding: "12px 14px", borderTop: "1px solid #eef0f3", display: "flex", gap: 8, flexWrap: "wrap", minHeight: 58, alignItems: "center" }}>
+          {fertig ? (
+            <>
+              <Link to="/login" className="btn-primary" style={{ fontSize: 13.5, padding: "10px 16px", borderRadius: 11, textDecoration: "none" }}>{t("Jetzt selbst üben →", "Practise yourself now →")}</Link>
+              <button onClick={nochmal} className="landing-chip" type="button">↺ {t("Nochmal", "Again")}</button>
+            </>
+          ) : (
+            <>
+              <span style={{ fontSize: 11.5, color: TEXT_4, width: "100%" }}>{t("Deine Antwort:", "Your reply:")}</span>
+              {aktuell.wahl.map((w) => (
+                <button key={w.text} onClick={() => antworten(w)} disabled={tippt} className="landing-chip" type="button">{w.text}</button>
+              ))}
+            </>
+          )}
+        </div>
+      </div>
+      <div style={{ fontSize: 12.5, color: TEXT_4, textAlign: "center", marginTop: 12 }}>
+        {t("Echter Ablauf, festes Drehbuch. In der App antwortet die KI auf das, was du wirklich schreibst.", "Real flow, fixed script. In the app the AI responds to what you actually write.")}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Preise: Monat/Jahr-Umschalter mit Ersparnis
+// ---------------------------------------------------------------------------
+function PreisKarte({ preise, probe, plusName }) {
+  const { t } = useLang();
+  const nav = useNavigate();
+  const [jaehrlich, setJaehrlich] = useState(false);
+  const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
+  const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
+  const jahrProMonat = ((preise?.jahr_rappen ?? 8900) / 12 / 100).toFixed(2);
+  const tokensMonat = preise?.plus_tokens_monat ?? 600;
+  const pakete = preise?.pakete || [{ key: "schnupper", tokens: 200, rappen: 200 }, { key: "starter", tokens: 900, rappen: 900 }, { key: "power", tokens: 1900, rappen: 1900 }];
+  const ersparnis = Math.round(((preise?.monat_rappen ?? 990) * 12 - (preise?.jahr_rappen ?? 8900)) / 100);
+
+  return (
+    <>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, alignItems: "stretch" }} className="landing-hero">
+        <div style={{ ...card, background: "#f8f8ff", border: "1px solid #e0e2fb" }}>
+          <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".06em", marginBottom: 6 }}>{t("PROBE", "TRIAL")}</div>
+          <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1 }}>CHF 0.–</div>
+          <div style={{ fontSize: 14, color: TEXT_3, margin: "6px 0 14px" }}>{t("einmalig, ohne Zahlungsangaben", "once, no payment details")}</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Badge>{t(`${probe} Aufgaben – jede so lange, wie du brauchst`, `${probe} tasks – each for as long as you need`)}</Badge>
+            <Badge>{t("Alle Funktionen: Foto, Stift, Aufgabensammlung, Elternansicht", "All features: photo, pen, task collection, parent view")}</Badge>
+            <Badge>{t("Kein Klarname, keine Kreditkarte", "No real name, no credit card")}</Badge>
+          </div>
+          <button onClick={() => nav("/login")} className="btn-primary" style={{ marginTop: 18, fontSize: 14, padding: "12px 20px", borderRadius: 11 }}>{t("Gratis probieren", "Try for free")}</button>
+        </div>
+
+        <div style={{ ...card, background: "#1a1c22", border: "1px solid #1a1c22", color: "#fff" }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 14 }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: "#c9ccf6", letterSpacing: ".06em" }}>{plusName.toUpperCase()} · {t("PRO KIND", "PER CHILD")}</div>
+            <div role="group" aria-label={t("Laufzeit", "Term")} style={{ marginLeft: "auto", display: "flex", gap: 4, background: "#2a2d38", borderRadius: 999, padding: 3 }}>
+              {[[false, t("Monatlich", "Monthly")], [true, t("Jährlich", "Yearly")]].map(([j, label]) => (
+                <button key={label} type="button" onClick={() => setJaehrlich(j)} aria-pressed={jaehrlich === j}
+                  style={{ border: "none", borderRadius: 999, padding: "6px 12px", fontSize: 12.5, fontWeight: 700, cursor: "pointer", background: jaehrlich === j ? "#fff" : "transparent", color: jaehrlich === j ? "#1a1c22" : "#c5c9d2", transition: "background .15s" }}>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div style={{ display: "flex", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+            <span style={{ fontSize: 40, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>CHF {jaehrlich ? `${jahr}.–` : monat}</span>
+            <span style={{ fontSize: 13.5, color: "#c5c9d2" }}>{jaehrlich ? t("im Jahr", "per year") : t("im Monat", "per month")}</span>
+            {jaehrlich && ersparnis > 0 && (
+              <span className="popin" style={{ fontSize: 11.5, fontWeight: 700, color: "#1a1c22", background: "#8be0a4", borderRadius: 999, padding: "4px 9px" }}>
+                {t(`${ersparnis}.– gespart`, `save ${ersparnis}.–`)}
+              </span>
+            )}
+          </div>
+          <div style={{ fontSize: 12.5, color: TEXT_4, margin: "6px 0 16px", minHeight: 17 }}>
+            {jaehrlich ? t(`entspricht ${jahrProMonat} im Monat · zwei Monate geschenkt`, `equals ${jahrProMonat} a month · two months free`) : t(`oder CHF ${jahr}.– im Jahr`, `or CHF ${jahr}.– a year`)}
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <Badge color="#e5e7ef">{t(`${tokensMonat} Tokens im Monat – rund 35 bis 40 Aufgaben, unverbrauchte bleiben`, `${tokensMonat} tokens a month – around 35 to 40 tasks, unused ones carry over`)}</Badge>
+            <Badge color="#e5e7ef">{t(`Mehr üben? Token-Pakete dazu, ab CHF ${(pakete[0].rappen / 100).toFixed(0)}.–`, `Practise more? Add token packages from CHF ${(pakete[0].rappen / 100).toFixed(0)}.–`)}</Badge>
+            <Badge color="#e5e7ef">{t("Foto, Stift, Aufgabensammlung, Probeprüfungen", "Photo, pen, task collection, mock exams")}</Badge>
+            <Badge color="#e5e7ef">{t("Jederzeit kündbar · Eltern schliessen ab: Stripe, Karte oder TWINT", "Cancel anytime · parents subscribe: Stripe, card or TWINT")}</Badge>
+          </div>
+          <button onClick={() => nav("/login")} className="btn-primary" style={{ marginTop: 18, fontSize: 14, padding: "12px 20px", borderRadius: 11, width: "100%" }}>
+            {t(`Mit der Probe starten – ${plusName} kommt danach`, `Start with the trial – ${plusName} comes after`)}
+          </button>
+        </div>
+      </div>
+
+    </>
+  );
+}
+
 export default function Landing() {
   const nav = useNavigate();
   const { t, lang, setLang } = useLang();
   const [preise, setPreise] = useState(null);
+  const [gescrollt, setGescrollt] = useState(false);
+  const [stufeTab, setStufeTab] = useState(1);
+
   useEffect(() => {
     api.get("/api/pay/preise").then(setPreise).catch(() => setPreise(null));
   }, []);
-  const abo = preise ? preise.abo_enabled : true;
+
+  // Kopfzeile bekommt beim Scrollen einen Hintergrund; Abschnitte blenden ein.
+  useEffect(() => {
+    const onScroll = () => setGescrollt(window.scrollY > 24);
+    onScroll();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    const reduziert = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    const ziele = Array.from(document.querySelectorAll(".landing-reveal"));
+    let beobachter = null;
+    let notbremse = null;
+    if (reduziert || !("IntersectionObserver" in window)) {
+      ziele.forEach((el) => el.classList.add("is-visible"));
+    } else {
+      // Was beim Laden schon im Bild ist, sofort zeigen – nicht auf den
+      // Beobachter warten. Und nach 1.5 s alles, falls er nie feuert
+      // (Vorschau-Werkzeuge, alte Browser): unsichtbarer Inhalt ist schlimmer
+      // als ein fehlender Effekt.
+      const hoehe = window.innerHeight || 800;
+      ziele.forEach((el) => {
+        if (el.getBoundingClientRect().top < hoehe) el.classList.add("is-visible");
+      });
+      beobachter = new IntersectionObserver((eintraege) => {
+        eintraege.forEach((e) => {
+          if (e.isIntersecting) {
+            e.target.classList.add("is-visible");
+            beobachter.unobserve(e.target);
+          }
+        });
+      }, { rootMargin: "0px 0px -10% 0px", threshold: 0.08 });
+      ziele.forEach((el) => beobachter.observe(el));
+      notbremse = setTimeout(() => ziele.forEach((el) => el.classList.add("is-visible")), 1500);
+    }
+    return () => {
+      window.removeEventListener("scroll", onScroll);
+      beobachter?.disconnect();
+      if (notbremse) clearTimeout(notbremse);
+    };
+  }, []);
+
   const plusName = preise?.plus_name || "Kniff Plus";
   const probe = preise?.trial_tasks ?? 10;
+  const tokensMonat = preise?.plus_tokens_monat ?? 600;
   const monat = ((preise?.monat_rappen ?? 990) / 100).toFixed(2);
   const jahr = Math.round((preise?.jahr_rappen ?? 8900) / 100);
-  const jahrProMonat = ((preise?.jahr_rappen ?? 8900) / 12 / 100).toFixed(2);
+  const abProMonat = ((preise?.jahr_rappen ?? 8900) / 12 / 100).toFixed(2); // Jahresabo, pro Monat gerechnet
 
   const langBtn = (l) => ({ border: "none", background: "transparent", fontSize: 13, fontWeight: 700, cursor: "pointer", color: lang === l ? INDIGO : TEXT_4, padding: "2px 4px" });
 
@@ -101,17 +390,17 @@ export default function Landing() {
 
   const STUFEN_KARTEN = [
     { titel: t("Mittelstufe", "Middle school"), klassen: t("4.–6. Klasse", "Grades 4–6"),
-      themen: t("Grundoperationen, Brüche, Prozente, einfache Geometrie. Kleine Schritte, Alltagsbilder, kein Fachwort ohne Erklärung.", "Basic operations, fractions, percentages, simple geometry. Small steps, everyday images, no jargon without explanation.") },
+      themen: t("Grundoperationen, Brüche, Prozente, einfache Geometrie. Kleine Schritte, Alltagsbilder, kein Fachwort ohne Erklärung.", "Basic operations, fractions, percentages, simple geometry. Small steps, everyday images, no jargon without explanation."),
+      aufgabe: t("Lena hat 24 Fr. Sackgeld und gibt 3/8 davon für ein Buch aus. Wie viel bleibt?", "Lena has 24 francs of pocket money and spends 3/8 of it on a book. How much is left?"),
+      frage: t("Kniff: «Wie viel ist denn 1/8 von 24? Teil die 24 mal in 8 gleich grosse Stücke.»", "Kniff: “What is 1/8 of 24? Split the 24 into 8 equal pieces.”") },
     { titel: t("Oberstufe", "Secondary school"), klassen: t("7.–9. Klasse · Sek I · Lehrplan 21", "Grades 7–9 · Lehrplan 21"),
-      themen: t("Gleichungen, Terme, Prozent und Zins, Geometrie, Pythagoras, Funktionen. Genau der Stoff, der in der Sek I geprüft wird.", "Equations, terms, percent and interest, geometry, Pythagoras, functions. Exactly what is tested in lower secondary.") },
+      themen: t("Gleichungen, Terme, Prozent und Zins, Geometrie, Pythagoras, Funktionen. Genau der Stoff, der in der Sek I geprüft wird.", "Equations, terms, percent and interest, geometry, Pythagoras, functions. Exactly what is tested in lower secondary."),
+      aufgabe: t("Ein Velo kostet nach 15 % Rabatt noch 680 Fr. Was war der Preis vorher?", "After a 15 % discount a bike still costs 680 francs. What was the price before?"),
+      frage: t("Kniff: «680 Fr. sind also nicht 100 %. Wie viel Prozent sind es?»", "Kniff: “So 680 francs is not 100 %. What percentage is it?”") },
     { titel: t("Gymnasium", "Gymnasium"), klassen: t("bis zur Matura", "up to the Matura"),
-      themen: t("Funktionen, Analysis, Vektoren, Stochastik. Präzise Fachsprache, zügigere Schritte – die Hilfe-Leiter gilt trotzdem.", "Functions, calculus, vectors, probability. Precise terminology, faster steps – the help ladder still applies.") },
-  ];
-
-  const PAKETE = [
-    { name: t("Schnupper", "Taster"), tokens: 200, chf: "2.–" },
-    { name: "Starter", tokens: 900, chf: "9.–" },
-    { name: "Power", tokens: 1900, chf: "19.–" },
+      themen: t("Funktionen, Analysis, Vektoren, Stochastik. Präzise Fachsprache, zügigere Schritte – die Hilfe-Leiter gilt trotzdem.", "Functions, calculus, vectors, probability. Precise terminology, faster steps – the help ladder still applies."),
+      aufgabe: t("Bestimme die Extremstellen von f(x) = x³ − 3x.", "Find the extrema of f(x) = x³ − 3x."),
+      frage: t("Kniff: «Welche Bedingung muss die erste Ableitung an einer Extremstelle erfüllen?»", "Kniff: “What condition must the first derivative satisfy at an extremum?”") },
   ];
 
   const SICHER = [
@@ -126,49 +415,49 @@ export default function Landing() {
       a: t("Nein – das ist der Punkt. Kniff verrät die Lösung nie von sich aus. Es stellt Fragen, gibt Tipps und macht höchstens einen Teilschritt vor. Den ganzen Lösungsweg zeigt es erst, wenn du zweimal selbst probiert hast. Wer abschreiben will, ist hier falsch.", "No – that's the point. Kniff never gives away the answer on its own. It asks questions, gives hints and at most shows one partial step. It shows the whole solution only after you've tried twice yourself. If you want to copy, this is the wrong place.") },
     { q: t("Versteht Kniff Schweizerdeutsch?", "Does Kniff understand Swiss German?"),
       a: t("Ja. «Ich verstahs nöd» oder «chasch mir helfe» versteht Kniff selbstverständlich. Geantwortet wird auf Schweizer Hochdeutsch – oder auf Englisch, wenn du die App auf Englisch stellst.", "Yes. Swiss German like “ich verstahs nöd” or “chasch mir helfe” is understood as a matter of course. Kniff replies in Swiss Standard German – or in English if you set the app to English.") },
-    ...(abo ? [
-      { q: t("Was kostet Kniff?", "What does Kniff cost?"),
-        a: t(`Die ersten ${probe} Aufgaben sind geschenkt – ohne Zahlungsangaben. Danach kostet ${plusName} CHF ${monat} im Monat oder ${jahr}.– im Jahr pro Kind, mit so vielen Aufgaben, wie dein Kind üben will. Jederzeit kündbar, das Abo läuft dann bis zum Ende der bezahlten Zeit.`,
-             `The first ${probe} tasks are on us – no payment details. After that ${plusName} costs CHF ${monat} a month or ${jahr}.– a year per child, with as many tasks as your child wants to practise. Cancel anytime; the subscription then runs until the end of the paid period.`) },
-      { q: t("Braucht mein Kind eine Kreditkarte?", "Does my child need a credit card?"),
-        a: t(`Nein. Die Probe braucht keine Zahlungsangaben. ${plusName} schliessen Eltern über eine sichere Stripe-Seite ab, mit Karte oder TWINT – direkt aus der Elternansicht für ihr Kind.`,
-             `No. The trial needs no payment details. Parents subscribe to ${plusName} through a secure Stripe page with a card or TWINT – straight from the parent view for their child.`) },
-    ] : [
-      { q: t("Was ist ein Token, und wie viele brauche ich?", "What is a token and how many do I need?"),
-        a: t("Ein Token ist ein Rappen. Jede Antwort von Kniff kostet je nach Aufgabe ein bis vier Tokens, eine Foto-Erkennung etwa zwei. Mit den 50 Gratis-Tokens im Monat kommst du auf rund 20 bis 40 Antworten. Tokens laufen nie ab.", "A token is one Swiss centime (Rappen). Each answer from Kniff costs one to four tokens depending on the task, a photo recognition about two. The 50 free tokens a month give you roughly 20 to 40 answers. Tokens never expire.") },
-      { q: t("Braucht mein Kind eine Kreditkarte?", "Does my child need a credit card?"),
-        a: t("Nein. Das Gratis-Konto braucht keine Zahlungsangaben. Tokens kaufen können Eltern über eine sichere Stripe-Seite mit Karte oder TWINT – ohne Abo, ohne automatische Verlängerung.", "No. The free account needs no payment details. Parents can buy tokens through a secure Stripe page with a card or TWINT – no subscription, no automatic renewal.") },
-    ]),
+    { q: t("Was kostet Kniff?", "What does Kniff cost?"),
+      a: t(`Die ersten ${probe} Aufgaben sind geschenkt – ohne Zahlungsangaben. Danach kostet ${plusName} CHF ${monat} im Monat oder ${jahr}.– im Jahr pro Kind. Darin sind ${tokensMonat} Tokens im Monat enthalten, das reicht für rund 35 bis 40 Aufgaben; unverbrauchte Tokens bleiben, und wer mehr braucht, kauft ein Paket dazu. Jederzeit kündbar, das Abo läuft dann bis zum Ende der bezahlten Zeit.`,
+           `The first ${probe} tasks are on us – no payment details. After that ${plusName} costs CHF ${monat} a month or ${jahr}.– a year per child. That includes ${tokensMonat} tokens a month, enough for around 35 to 40 tasks; unused tokens carry over, and if you need more you buy a package. Cancel anytime; the subscription then runs until the end of the paid period.`) },
+    { q: t("Was ist ein Token?", "What is a token?"),
+      a: t(`Ein Token ist ein Rappen KI-Leistung. Jede Antwort von Kniff kostet je nach Aufgabe ein bis vier Tokens, eine Foto-Erkennung etwa zwei – eine ganze Aufgabe mit allen Zwischenschritten im Schnitt ${TOKENS_PRO_AUFGABE}. Tokens verfallen nie.`,
+           `A token is one Rappen of AI computation. Each answer from Kniff costs one to four tokens depending on the task, a photo recognition about two – a whole task with all steps about ${TOKENS_PRO_AUFGABE} on average. Tokens never expire.`) },
+    { q: t("Braucht mein Kind eine Kreditkarte?", "Does my child need a credit card?"),
+      a: t(`Nein. Die Probe braucht keine Zahlungsangaben. ${plusName} schliessen Eltern über eine sichere Stripe-Seite ab, mit Karte oder TWINT – direkt aus der Elternansicht für ihr Kind.`,
+           `No. The trial needs no payment details. Parents subscribe to ${plusName} through a secure Stripe page with a card or TWINT – straight from the parent view for their child.`) },
     { q: t("Kann Kniff sich irren?", "Can Kniff be wrong?"),
       a: t("Ja, wie jede KI. Deshalb rechnet Kniff jede Antwort im Hintergrund mit einem Mathe-Programm nach und zeigt Korrekturen offen an. Stimmt trotzdem etwas nicht, meldest du es mit einem Klick direkt aus dem Chat – wir lesen jede Meldung.", "Yes, like any AI. That's why Kniff re-checks every answer in the background with a maths engine and shows corrections openly. If something is still wrong, you report it with one click straight from the chat – we read every report.") },
     { q: t("Gibt es Kniff für Schulen?", "Is there Kniff for schools?"),
       a: t("Ja, es gibt einen Schul-Plan mit unbegrenzten Aufgaben für ganze Klassen. Schreib uns an die Adresse im Impressum.", "Yes, there is a school plan with unlimited tasks for whole classes. Write to us at the address in the legal notice.") },
   ];
 
+  const aktiveStufe = STUFEN_KARTEN[stufeTab];
+
   return (
     <div style={{ minHeight: "100vh", background: "#fff", overflowX: "hidden" }}>
-      <nav style={{ display: "flex", alignItems: "center", gap: 24, padding: "20px 40px", maxWidth: 1180, margin: "0 auto" }} className="landing-section">
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-          <span style={{ width: 26, height: 26, borderRadius: 8, background: "#6366f1" }} />
-          <span style={{ fontWeight: 800, fontSize: 19, color: INDIGO, letterSpacing: "-.02em" }}>Kniff</span>
-        </div>
-        <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14 }}>
-          <a href="#so" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("So funktioniert's", "How it works")}</a>
-          <a href="#preise" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Preise", "Pricing")}</a>
-          <a href="#eltern" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Für Eltern", "For parents")}</a>
-          <span>
-            <button onClick={() => setLang("de")} style={langBtn("de")}>DE</button>
-            <span style={{ color: "#d2d4dd", fontSize: 13 }}>|</span>
-            <button onClick={() => setLang("en")} style={langBtn("en")}>EN</button>
-          </span>
-          <Link to="/login" style={{ fontSize: 14, fontWeight: 600, border: "1px solid #d2d4dd", borderRadius: 11, padding: "9px 18px" }}>{t("Anmelden", "Sign in")}</Link>
+      <nav className={gescrollt ? "landing-nav landing-nav-fest" : "landing-nav"}>
+        <div style={{ display: "flex", alignItems: "center", gap: 16, padding: "14px 40px", maxWidth: 1180, margin: "0 auto", minWidth: 0 }} className="landing-section">
+          <a href="#top" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
+            <span style={{ width: 26, height: 26, borderRadius: 8, background: "#6366f1" }} />
+            <span style={{ fontWeight: 800, fontSize: 19, color: INDIGO, letterSpacing: "-.02em" }}>Kniff</span>
+          </a>
+          <div style={{ marginLeft: "auto", display: "flex", alignItems: "center", gap: 14, minWidth: 0 }}>
+            <a href="#so" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("So funktioniert's", "How it works")}</a>
+            <a href="#preise" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Preise", "Pricing")}</a>
+            <a href="#eltern" className="landing-navlink" style={{ fontSize: 14, fontWeight: 600, color: TEXT_3 }}>{t("Für Eltern", "For parents")}</a>
+            <span>
+              <button onClick={() => setLang("de")} style={langBtn("de")}>DE</button>
+              <span style={{ color: "#d2d4dd", fontSize: 13 }}>|</span>
+              <button onClick={() => setLang("en")} style={langBtn("en")}>EN</button>
+            </span>
+            <Link to="/login" style={{ fontSize: 14, fontWeight: 600, border: "1px solid #d2d4dd", borderRadius: 11, padding: "9px 18px", background: "#fff" }}>{t("Anmelden", "Sign in")}</Link>
+          </div>
         </div>
       </nav>
 
       {/* ---- Hero ---- */}
-      <div style={{ position: "relative", maxWidth: 1180, margin: "0 auto", padding: "28px 40px 56px", display: "grid", gridTemplateColumns: "1.05fr .95fr", gap: 52, alignItems: "center" }} className="landing-hero landing-section">
+      <div id="top" style={{ position: "relative", maxWidth: 1180, margin: "0 auto", padding: "28px 40px 56px", display: "grid", gridTemplateColumns: "1.05fr .95fr", gap: 52, alignItems: "center" }} className="landing-hero landing-section">
         <div style={{ position: "absolute", inset: 0, background: "radial-gradient(1000px 480px at 78% -10%, #eef0fe, transparent 70%)", pointerEvents: "none" }} />
-        <div style={{ position: "relative", zIndex: 1 }}>
+        <div style={{ position: "relative", zIndex: 1 }} className="landing-reveal">
           <Eyebrow>
             <span style={{ width: 7, height: 7, borderRadius: "50%", background: "#6366f1" }} />
             {t("Mathe-Tutor für die Schweiz · 4. Klasse bis Matura", "Maths tutor for Switzerland · grade 4 to Matura")}
@@ -182,66 +471,18 @@ export default function Landing() {
           </p>
           <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 24, flexWrap: "wrap" }}>
             <button onClick={() => nav("/login")} className="btn-primary" style={{ fontSize: 16, padding: "15px 26px", borderRadius: 13 }}>
-              {t("Kostenlos loslegen", "Start for free")}
+              {t(`${probe} Aufgaben gratis probieren`, `Try ${probe} tasks for free`)}
             </button>
             <a href="#so" className="btn-ghost" style={{ fontSize: 15, padding: "14px 20px", borderRadius: 13, display: "inline-block" }}>{t("So funktioniert's ↓", "How it works ↓")}</a>
           </div>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 18 }}>
-            {abo ? (
-              <>
-                <Badge>{t(`${probe} Aufgaben gratis probieren`, `Try ${probe} tasks for free`)}</Badge>
-                <Badge>{t("Keine Kreditkarte zum Start, jederzeit kündbar", "No credit card to start, cancel anytime")}</Badge>
-              </>
-            ) : (
-              <>
-                <Badge>{t("50 Gratis-Tokens jeden Monat", "50 free tokens every month")}</Badge>
-                <Badge>{t("Kein Abo, keine Kreditkarte nötig", "No subscription, no credit card needed")}</Badge>
-              </>
-            )}
+            <Badge>{t("Keine Kreditkarte zum Start", "No credit card to start")}</Badge>
+            <Badge>{t(`Danach ${plusName} ab CHF ${abProMonat} im Monat, jederzeit kündbar`, `Then ${plusName} from CHF ${abProMonat} a month, cancel anytime`)}</Badge>
             <Badge>{t("Kein Klarname nötig", "No real name needed")}</Badge>
           </div>
         </div>
 
-        {/* Chat-Vorschau mit Hilfe-Leiter */}
-        <div style={{ position: "relative", zIndex: 1 }}>
-          <div style={{ background: "#fff", border: "1px solid #e7e8ee", borderRadius: 22, boxShadow: "0 2px 6px rgba(40,40,90,.06),0 30px 60px rgba(40,40,90,.16)", overflow: "hidden" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, padding: "15px 18px", borderBottom: "1px solid #eef0f3" }}>
-              <div>
-                <div style={{ fontSize: 14, fontWeight: 700 }}>{t("Lineare Gleichungen", "Linear equations")}</div>
-                <div style={{ fontSize: 11.5, color: TEXT_4 }}>{t("Hausaufgabe · fotografiert", "Homework · photographed")}</div>
-              </div>
-              <div style={{ display: "flex", alignItems: "center", gap: 9, background: "#eef0fe", borderRadius: 999, padding: "6px 12px" }}>
-                <span style={{ fontSize: 10.5, fontWeight: 700, color: INDIGO }}>{t("HILFE", "HELP")}</span>
-                <span style={{ display: "flex", gap: 4 }}><Dot filled /><Dot filled /><Dot /><Dot /></span>
-              </div>
-            </div>
-            <div style={{ background: "#f6f7fb", padding: 20, display: "flex", flexDirection: "column", gap: 12 }}>
-              <div style={{ alignSelf: "flex-start", background: "#fff", border: "1px solid #e7e8ee", borderRadius: 16, borderBottomLeftRadius: 5, boxShadow: "0 6px 16px rgba(40,40,90,.06)", padding: "11px 15px", fontSize: 13.5 }}>
-                {t("Löse nach x auf:", "Solve for x:")}{" "}
-                <span style={{ fontFamily: "Georgia,serif", fontStyle: "italic", fontSize: 18, display: "inline-block", marginTop: 5 }}>3x + 5 = 20</span>
-              </div>
-              <div style={{ alignSelf: "flex-end", background: "#6366f1", color: "#fff", borderRadius: 16, borderBottomRightRadius: 5, padding: "10px 15px", fontSize: 13.5, maxWidth: "84%" }}>
-                {t("ich weiss nöd wie afange", "i don't know how to start")}
-              </div>
-              <div style={{ alignSelf: "flex-start", background: "#fff", border: "1px solid #e7e8ee", borderRadius: 16, borderBottomLeftRadius: 5, boxShadow: "0 6px 16px rgba(40,40,90,.06)", padding: "11px 15px", fontSize: 13.5 }}>
-                {lang === "en"
-                  ? <>No stress 🙂 Look at the left side: what is standing in the way next to the <b>3x</b>?</>
-                  : <>Kein Stress 🙂 Schau auf die linke Seite: Was steht da neben dem <b>3x</b> im Weg?</>}
-              </div>
-              <div style={{ alignSelf: "flex-end", background: "#6366f1", color: "#fff", borderRadius: 16, borderBottomRightRadius: 5, padding: "10px 15px", fontSize: 13.5, maxWidth: "84%" }}>
-                {t("die +5? also −5 auf beiden seiten → 3x = 15", "the +5? so −5 on both sides → 3x = 15")}
-              </div>
-              <div style={{ alignSelf: "flex-start", background: "#fff", border: "1px solid #cde7d6", borderRadius: 16, borderBottomLeftRadius: 5, boxShadow: "0 6px 16px rgba(40,40,90,.06)", padding: "11px 15px", fontSize: 13.5 }}>
-                {lang === "en"
-                  ? <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ Checked.</span> Strong – the minus on both sides worked. Now the <b>x</b> is still stuck to the 3 – what do you do with that?</>
-                  : <><span style={{ color: "#1a7f3c", fontWeight: 700 }}>✓ Nachgerechnet.</span> Stark, das Minus auf beiden Seiten hat gesessen. Jetzt klebt das <b>x</b> noch an der 3 – was machst du damit?</>}
-              </div>
-            </div>
-          </div>
-          <div style={{ fontSize: 12.5, color: TEXT_4, textAlign: "center", marginTop: 12 }}>
-            {t("Hilfe-Stufe 2 von 4 – der Lösungsweg kommt erst nach zwei eigenen Versuchen.", "Help level 2 of 4 – the full solution only comes after two attempts of your own.")}
-          </div>
-        </div>
+        <DemoChat />
       </div>
 
       {/* ---- So funktioniert's ---- */}
@@ -251,7 +492,7 @@ export default function Landing() {
         <Lead>{t("Kniff arbeitet wie eine gute Nachhilfe-Person: Es schaut, was du schon hast, und gibt genau so viel Hilfe, wie du gerade brauchst – nicht mehr.", "Kniff works like a good tutor: it looks at what you already have and gives exactly as much help as you need right now – no more.")}</Lead>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }} className="landing-grid-3">
           {SCHRITTE.map((s, i) => (
-            <div key={s.titel} style={card}>
+            <div key={s.titel} style={card} className="landing-card">
               <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
                 <span style={{ width: 40, height: 40, borderRadius: 12, background: "#eef0fe", display: "grid", placeItems: "center", fontSize: 19 }}>{s.icon}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: TEXT_4, letterSpacing: ".06em" }}>{t("SCHRITT", "STEP")} {i + 1}</span>
@@ -270,7 +511,7 @@ export default function Landing() {
         <Lead>{t("Das ist der Kniff an Kniff: Hilfe kommt in kleinen Stufen, und jede Stufe lässt dir so viel wie möglich selbst zu tun. Die Stufen siehst du im Chat als vier Punkte.", "This is the trick behind Kniff: help comes in small steps, and each step leaves as much as possible for you to do yourself. You see the levels in the chat as four dots.")}</Lead>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14 }} className="landing-grid-4">
           {STUFEN.map((s) => (
-            <div key={s.n} style={{ ...card, borderTop: `4px solid ${s.n === 4 ? "#1a7f3c" : INDIGO}` }}>
+            <div key={s.n} style={{ ...card, borderTop: `4px solid ${s.n === 4 ? "#1a7f3c" : INDIGO}` }} className="landing-card">
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
                 <span style={{ display: "flex", gap: 4 }}>{[1, 2, 3, 4].map((i) => <Dot key={i} filled={i <= s.n} />)}</span>
                 <span style={{ fontSize: 12, fontWeight: 700, color: TEXT_4 }}>{t("STUFE", "LEVEL")} {s.n}</span>
@@ -285,108 +526,40 @@ export default function Landing() {
         </div>
       </Section>
 
-      {/* ---- Für wen ---- */}
+      {/* ---- Für wen: Reiter ---- */}
       <Section tinted>
         <Eyebrow>{t("Für wen", "Who it's for")}</Eyebrow>
         <H2>{t("Von der 4. Klasse bis zur Matura.", "From grade 4 to the Matura.")}</H2>
-        <Lead>{t("Du stellst beim Anmelden deine Stufe ein. Kniff passt Sprache, Schrittgrösse und Beispiele daran an – Sackgeld und Pizza in der Mittelstufe, Fachsprache am Gymi.", "You set your level when you sign up. Kniff adapts language, step size and examples – pocket money and pizza in middle school, proper terminology at the Gymnasium.")}</Lead>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 16 }} className="landing-grid-3">
-          {STUFEN_KARTEN.map((k) => (
-            <div key={k.titel} style={card}>
-              <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".04em", marginBottom: 4 }}>{k.klassen}</div>
-              <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.01em", marginBottom: 8 }}>{k.titel}</div>
-              <div style={{ fontSize: 14.5, lineHeight: 1.55, color: TEXT_2 }}>{k.themen}</div>
-            </div>
+        <Lead>{t("Du stellst beim Anmelden deine Stufe ein. Kniff passt Sprache, Schrittgrösse und Beispiele daran an – Sackgeld und Pizza in der Mittelstufe, Fachsprache am Gymi. Klick dich durch:", "You set your level when you sign up. Kniff adapts language, step size and examples – pocket money and pizza in middle school, proper terminology at the Gymnasium. Click through:")}</Lead>
+        <div role="tablist" aria-label={t("Schulstufe", "School level")} style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 16 }}>
+          {STUFEN_KARTEN.map((k, i) => (
+            <button key={k.titel} role="tab" aria-selected={stufeTab === i} onClick={() => setStufeTab(i)} type="button"
+              className={stufeTab === i ? "landing-tab landing-tab-aktiv" : "landing-tab"}>
+              {k.titel} <span style={{ fontWeight: 500, opacity: .75 }}>· {k.klassen}</span>
+            </button>
           ))}
         </div>
-        <div style={{ display: "flex", flexWrap: "wrap", gap: 18, marginTop: 20 }}>
-          <Badge>{t("Lehrplan 21", "Lehrplan 21 (Swiss curriculum)")}</Badge>
-          <Badge>{t("Versteht Schweizerdeutsch", "Understands Swiss German")}</Badge>
-          <Badge>{t("Deutsch oder Englisch", "German or English")}</Badge>
-          <Badge>{t("Rechnet in Franken und Rappen", "Calculates in francs and centimes")}</Badge>
+        <div key={stufeTab} role="tabpanel" className="popin landing-hero" style={{ display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 16 }}>
+          <div style={card}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".04em", marginBottom: 4 }}>{aktiveStufe.klassen}</div>
+            <div style={{ fontSize: 19, fontWeight: 800, letterSpacing: "-.01em", marginBottom: 8 }}>{aktiveStufe.titel}</div>
+            <div style={{ fontSize: 14.5, lineHeight: 1.55, color: TEXT_2 }}>{aktiveStufe.themen}</div>
+          </div>
+          <div style={{ ...card, background: "#f6f7fb" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: TEXT_4, letterSpacing: ".06em", marginBottom: 8 }}>{t("SO KLINGT DAS", "WHAT IT SOUNDS LIKE")}</div>
+            <div style={{ background: "#fff", border: "1px solid #e7e8ee", borderRadius: 14, borderBottomLeftRadius: 5, padding: "11px 15px", fontSize: 14, marginBottom: 10, lineHeight: 1.5 }}>{aktiveStufe.aufgabe}</div>
+            <div style={{ background: "#eef0fe", borderRadius: 14, borderBottomLeftRadius: 5, padding: "11px 15px", fontSize: 14, lineHeight: 1.5, color: "#1a1c22" }}>{aktiveStufe.frage}</div>
+          </div>
         </div>
       </Section>
 
       {/* ---- Preise ---- */}
       <Section id="preise">
-        {abo ? (
-          <>
         <Eyebrow>{t("Was es kostet", "What it costs")}</Eyebrow>
-        <H2>{t("Gratis probieren. Dann so viel üben, wie du willst.", "Try it for free. Then practise as much as you like.")}</H2>
-        <Lead>{t(`Die ersten ${probe} Aufgaben sind geschenkt. Danach kostet ${plusName} weniger als eine Nachhilfestunde im Monat – pro Kind, jederzeit kündbar.`,
-                 `The first ${probe} tasks are on us. After that ${plusName} costs less than one tutoring lesson a month – per child, cancel anytime.`)}</Lead>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, alignItems: "stretch" }} className="landing-hero">
-          <div style={{ ...card, background: "#f8f8ff", border: "1px solid #e0e2fb" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".06em", marginBottom: 6 }}>{t("PROBE", "TRIAL")}</div>
-            <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1 }}>CHF 0.–</div>
-            <div style={{ fontSize: 14, color: TEXT_3, margin: "6px 0 14px" }}>{t("einmalig, ohne Zahlungsangaben", "once, no payment details")}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <Badge>{t(`${probe} Aufgaben – jede so lange, wie du brauchst`, `${probe} tasks – each for as long as you need`)}</Badge>
-              <Badge>{t("Alle Funktionen: Foto, Stift, Aufgabensammlung, Elternansicht", "All features: photo, pen, task collection, parent view")}</Badge>
-              <Badge>{t("Kein Klarname, keine Kreditkarte", "No real name, no credit card")}</Badge>
-            </div>
-            <button onClick={() => nav("/login")} className="btn-primary" style={{ marginTop: 18, fontSize: 14, padding: "12px 20px", borderRadius: 11 }}>{t("Gratis probieren", "Try for free")}</button>
-          </div>
-          <div style={{ ...card, background: "#1a1c22", border: "1px solid #1a1c22", color: "#fff" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: "#c9ccf6", letterSpacing: ".06em", marginBottom: 10 }}>{plusName.toUpperCase()} · {t("PRO KIND", "PER CHILD")}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(2, 1fr)", gap: 10, marginBottom: 14 }} className="landing-grid-3-tight">
-              <div style={{ border: "1px solid #3a3d49", borderRadius: 12, padding: "12px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#c5c9d2" }}>{t("Monatlich", "Monthly")}</div>
-                <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-.02em", margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>CHF {monat}</div>
-                <div style={{ fontSize: 12.5, color: TEXT_4 }}>{t("im Monat", "per month")}</div>
-              </div>
-              <div style={{ border: "1px solid #3a3d49", borderRadius: 12, padding: "12px 12px", textAlign: "center" }}>
-                <div style={{ fontSize: 12.5, fontWeight: 700, color: "#c5c9d2" }}>{t("Jährlich", "Yearly")}</div>
-                <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-.02em", margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>CHF {jahr}.–</div>
-                <div style={{ fontSize: 12.5, color: TEXT_4 }}>{t(`${jahrProMonat} im Monat – zwei Monate geschenkt`, `${jahrProMonat} a month – two months free`)}</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8, color: "#e5e7ef" }}>
-              <Badge color="#e5e7ef">{t("So viel üben, wie dein Kind will – Foto, Stift, Aufgabensammlung, Probeprüfungen", "Practise as much as your child wants – photo, pen, task collection, mock exams")}</Badge>
-              <Badge color="#e5e7ef">{t("Jederzeit kündbar, läuft bis zum Ende der bezahlten Zeit", "Cancel anytime, runs until the end of the paid period")}</Badge>
-              <Badge color="#e5e7ef">{t("Eltern schliessen ab: Stripe, Karte oder TWINT", "Parents subscribe: Stripe, card or TWINT")}</Badge>
-              <Badge color="#e5e7ef">{t("Schulen: Klassen-Plan mit unbegrenzten Aufgaben auf Anfrage", "Schools: class plan with unlimited tasks on request")}</Badge>
-            </div>
-          </div>
-        </div>
-          </>
-        ) : (
-          <>
-        <Eyebrow>{t("Was es kostet", "What it costs")}</Eyebrow>
-        <H2>{t("Gratis anfangen. Nur zahlen, was du brauchst.", "Start for free. Pay only for what you use.")}</H2>
-        <Lead>{t("Kein Abo, keine Mindestlaufzeit. Ein Token ist ein Rappen, und jede Antwort von Kniff kostet je nach Aufgabe ein bis vier Tokens. Tokens laufen nie ab.", "No subscription, no minimum term. A token is one Rappen, and each answer from Kniff costs one to four tokens depending on the task. Tokens never expire.")}</Lead>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1.4fr", gap: 16, alignItems: "stretch" }} className="landing-hero">
-          <div style={{ ...card, background: "#f8f8ff", border: "1px solid #e0e2fb" }}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: INDIGO, letterSpacing: ".06em", marginBottom: 6 }}>{t("GRATIS", "FREE")}</div>
-            <div style={{ fontSize: 34, fontWeight: 900, letterSpacing: "-.03em", lineHeight: 1 }}>CHF 0.–</div>
-            <div style={{ fontSize: 14, color: TEXT_3, margin: "6px 0 14px" }}>{t("jeden Monat, ohne Zahlungsangaben", "every month, no payment details")}</div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <Badge>{t("50 Tokens pro Monat – rund 20 bis 40 Antworten", "50 tokens per month – roughly 20 to 40 answers")}</Badge>
-              <Badge>{t("Alle Funktionen: Foto, Stift, Aufgabensammlung, Elternansicht", "All features: photo, pen, task collection, parent view")}</Badge>
-              <Badge>{t("Kein Klarname, keine Kreditkarte", "No real name, no credit card")}</Badge>
-            </div>
-            <button onClick={() => nav("/login")} className="btn-primary" style={{ marginTop: 18, fontSize: 14, padding: "12px 20px", borderRadius: 11 }}>{t("Gratis-Konto erstellen", "Create a free account")}</button>
-          </div>
-          <div style={card}>
-            <div style={{ fontSize: 12, fontWeight: 700, color: TEXT_4, letterSpacing: ".06em", marginBottom: 10 }}>{t("MEHR ÜBEN? TOKENS NACHLADEN", "PRACTISE MORE? TOP UP TOKENS")}</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10, marginBottom: 14 }} className="landing-grid-3-tight">
-              {PAKETE.map((p) => (
-                <div key={p.name} style={{ border: "1px solid #e7e8ee", borderRadius: 12, padding: "12px 12px", textAlign: "center" }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 700, color: TEXT_3 }}>{p.name}</div>
-                  <div style={{ fontSize: 22, fontWeight: 900, letterSpacing: "-.02em", margin: "4px 0 2px", fontVariantNumeric: "tabular-nums" }}>CHF {p.chf}</div>
-                  <div style={{ fontSize: 12.5, color: TEXT_4, fontVariantNumeric: "tabular-nums" }}>{p.tokens} Tokens</div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              <Badge>{t("Einmalig kaufen – nichts verlängert sich von selbst", "Buy once – nothing renews by itself")}</Badge>
-              <Badge>{t("Bezahlung über Stripe: Karte oder TWINT", "Payment via Stripe: card or TWINT")}</Badge>
-              <Badge>{t("Schulen: Klassen-Plan mit unbegrenzten Aufgaben auf Anfrage", "Schools: class plan with unlimited tasks on request")}</Badge>
-            </div>
-          </div>
-        </div>
-          </>
-        )}
+        <H2>{t("Gratis probieren. Dann weiterüben mit Kniff Plus.", "Try it for free. Then keep practising with Kniff Plus.")}</H2>
+        <Lead>{t(`Die ersten ${probe} Aufgaben sind geschenkt. Danach kostet ${plusName} weniger als eine Nachhilfestunde im Monat – mit ${tokensMonat} Tokens im Monat, pro Kind, jederzeit kündbar.`,
+                 `The first ${probe} tasks are on us. After that ${plusName} costs less than one tutoring lesson a month – with ${tokensMonat} tokens a month, per child, cancel anytime.`)}</Lead>
+        <PreisKarte preise={preise} probe={probe} plusName={plusName} />
       </Section>
 
       {/* ---- Für Eltern ---- */}
@@ -422,11 +595,12 @@ export default function Landing() {
           <div>
             <Eyebrow>{t("👪 Für Eltern", "👪 For parents")}</Eyebrow>
             <H2>{t("Sie sehen, woran gearbeitet wurde – nie die Chats.", "You see what was worked on – never the chats.")}</H2>
-            <Lead>{t("Ihr Kind gibt Ihnen aus der App einen Einladungscode. Damit erstellen Sie ein eigenes Eltern-Konto und sehen jede Woche: welche Aufgaben bearbeitet wurden, wo viel Hilfe nötig war, wie selbständig gerechnet wurde. Die Gespräche selbst bleiben beim Kind.", "Your child gives you an invitation code from the app. With it you create your own parent account and see every week: which tasks were worked on, where a lot of help was needed, how independently your child calculated. The conversations themselves stay with the child.")}</Lead>
+            <Lead>{t(`Ihr Kind gibt Ihnen aus der App einen Einladungscode. Damit erstellen Sie ein eigenes Eltern-Konto und sehen jede Woche: welche Aufgaben bearbeitet wurden, wo viel Hilfe nötig war, wie selbständig gerechnet wurde. Die Gespräche selbst bleiben beim Kind. ${plusName} schliessen Sie dort mit einem Klick für Ihr Kind ab – die Rechnung geht an Sie.`, `Your child gives you an invitation code from the app. With it you create your own parent account and see every week: which tasks were worked on, where a lot of help was needed, how independently your child calculated. The conversations themselves stay with the child. You subscribe to ${plusName} for your child there with one click – the invoice goes to you.`)}</Lead>
             <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
               <Badge>{t("Eigenes Eltern-Konto, verknüpft per Code vom Kind", "Your own parent account, linked via a code from your child")}</Badge>
               <Badge>{t("Wochen-Überblick mit den bearbeiteten Aufgaben", "Weekly overview with the tasks worked on")}</Badge>
               <Badge>{t("Freigabe liegt beim Kind – jederzeit widerrufbar", "Sharing is controlled by the child – revocable anytime")}</Badge>
+              <Badge>{t("Abo und Token-Pakete direkt aus der Elternansicht", "Subscription and token packages straight from the parent view")}</Badge>
             </div>
           </div>
         </div>
@@ -438,7 +612,7 @@ export default function Landing() {
         <H2>{t("Gebaut für Kinder, nicht für Datensammler.", "Built for children, not for data collectors.")}</H2>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 14, marginTop: 24 }} className="landing-grid-4">
           {SICHER.map((s) => (
-            <div key={s.titel} style={card}>
+            <div key={s.titel} style={card} className="landing-card">
               <div style={{ fontSize: 24, marginBottom: 8 }}>{s.icon}</div>
               <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 6 }}>{s.titel}</div>
               <div style={{ fontSize: 14, lineHeight: 1.55, color: TEXT_2 }}>{s.text}</div>
@@ -473,7 +647,7 @@ export default function Landing() {
           <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: "-.03em", marginBottom: 8, textWrap: "balance" }}>
             {t("Die nächste Hausaufgabe wartet nicht.", "The next homework isn't waiting.")}
           </div>
-          <div style={{ fontSize: 15, color: "#c5c9d2", marginBottom: 18 }}>{abo ? t(`Konto in einer Minute, ${probe} Aufgaben geschenkt, keine Kreditkarte.`, `Account in a minute, ${probe} tasks on us, no credit card.`) : t("Konto in einer Minute, 50 Tokens geschenkt, keine Kreditkarte.", "Account in a minute, 50 tokens on us, no credit card.")}</div>
+          <div style={{ fontSize: 15, color: "#c5c9d2", marginBottom: 18 }}>{t(`Konto in einer Minute, ${probe} Aufgaben geschenkt, keine Kreditkarte.`, `Account in a minute, ${probe} tasks on us, no credit card.`)}</div>
           <Link to="/login" style={{ display: "inline-block", fontSize: 15, fontWeight: 600, color: "#fff", background: "#6366f1", borderRadius: 11, padding: "12px 22px" }}>{t("Kostenlos loslegen →", "Start for free →")}</Link>
         </div>
         <div style={{ maxWidth: 1180, margin: "30px auto 0", paddingTop: 16, borderTop: "1px solid #2c2f38", display: "flex", gap: 18, flexWrap: "wrap", justifyContent: "center", fontSize: 12.5, color: "#8b909c" }}>
