@@ -119,6 +119,8 @@ export default function AppShell() {
   const isActive = (path) => loc.pathname.startsWith(`/app/${path}`);
   const initial = (user?.display_name || "?").charAt(0).toUpperCase();
   const quotaPct = quota ? quota.percent_used : 0;
+  // Kniff Plus soll man finden, bevor die Probe zu Ende ist – nicht erst danach.
+  const plusSichtbar = !!(quota?.abo_enabled && !quota?.unlimited);
 
   const navItem = (active) => ({
     display: "flex",
@@ -188,6 +190,14 @@ export default function AppShell() {
           </div>
 
           <div style={{ padding: "12px 16px 4px", fontSize: 11, fontWeight: 700, letterSpacing: ".1em", color: "#9aa0ab" }}>{t("MEHR", "MORE")}</div>
+          {plusSichtbar && (
+            <div onClick={() => nav(quota.stufe === "plus" ? "/app/einstellungen?tab=abo" : "/app/preise")} style={{ ...navItem(isActive("preise")), margin: "0 8px" }}>
+              ✨ {quota.plus_name}
+              {quota.stufe !== "plus" && (
+                <span style={{ marginLeft: "auto", fontSize: 10.5, fontWeight: 700, color: "#4f46e5", background: "#eef0fe", borderRadius: 999, padding: "2px 8px" }}>{t("Abo", "Plan")}</span>
+              )}
+            </div>
+          )}
           <div onClick={() => nav("/app/bibliothek")} style={{ ...navItem(isActive("bibliothek")), margin: "0 8px" }}>📚 {t("Aufgaben üben", "Practice tasks")}</div>
           <div onClick={() => nav("/app/eltern")} style={{ ...navItem(isActive("eltern")), margin: "0 8px" }}>👪 {t("Eltern verbinden", "Connect parents")}</div>
           <div onClick={() => setFbOpen(true)} style={{ ...navItem(false), margin: "0 8px" }}>💬 Feedback</div>
@@ -215,7 +225,7 @@ export default function AppShell() {
             ) : quota?.abo_enabled ? (
               // Kniff Plus: in Aufgaben denken, nicht in Tokens
               <div onClick={() => nav(quota.stufe === "plus" ? "/app/einstellungen?tab=abo" : "/app/preise")} style={{ cursor: "pointer" }}>
-                <div style={{ fontSize: 10, color: quota.stufe === "gesperrt" || (quota.stufe === "plus" && quota.remaining <= 0) ? "#d9573a" : "#9aa0ab", marginBottom: 4 }}>
+                <div style={{ fontSize: quota.stufe === "plus" ? 10 : 11.5, fontWeight: quota.stufe === "plus" ? 400 : 600, color: quota.stufe === "gesperrt" || (quota.stufe === "plus" && quota.remaining <= 0) ? "#d9573a" : quota.stufe === "plus" ? "#9aa0ab" : "#4b5160", marginBottom: 4 }}>
                   {quota.stufe === "plus"
                     ? (quota.remaining > 0
                         ? `✨ ${quota.plus_name} · ${quota.remaining} Tokens${quota.abo_gekuendigt ? ` · ${t("läuft aus", "ending")}` : ""}`
@@ -230,6 +240,13 @@ export default function AppShell() {
                   <div style={{ height: 5, borderRadius: 999, background: "#e7e8ee", overflow: "hidden" }}>
                     <div style={{ width: `${quotaPct}%`, height: "100%", background: quotaPct >= 90 ? "#d9573a" : "#cdd2db" }} />
                   </div>
+                )}
+                {quota.stufe !== "plus" && (
+                  <button onClick={(e) => { e.stopPropagation(); nav("/app/preise"); }}
+                    style={{ marginTop: 9, width: "100%", borderRadius: 9, padding: "8px 10px", fontSize: 12, fontWeight: 700, cursor: "pointer",
+                      border: quota.stufe === "gesperrt" ? "none" : "1px solid #dfe1fb", background: quota.stufe === "gesperrt" ? "#4f46e5" : "#eef0fe", color: quota.stufe === "gesperrt" ? "#fff" : "#4f46e5" }}>
+                    ✨ {quota.stufe === "gesperrt" ? t(`${quota.plus_name} aktivieren`, `Activate ${quota.plus_name}`) : t(`${quota.plus_name} ansehen`, `See ${quota.plus_name}`)}
+                  </button>
                 )}
               </div>
             ) : (
@@ -259,6 +276,13 @@ export default function AppShell() {
               <span style={{ width: 20, height: 20, borderRadius: 6, background: "#6366f1" }} />
               <span style={{ fontWeight: 800, fontSize: 15, color: "#4f46e5", letterSpacing: "-.02em" }}>Kniff</span>
             </Link>
+            {plusSichtbar && quota.stufe !== "plus" && (
+              <button onClick={() => nav("/app/preise")}
+                style={{ marginLeft: "auto", borderRadius: 999, padding: "6px 12px", fontSize: 12, fontWeight: 700, cursor: "pointer", border: "none",
+                  background: quota.stufe === "gesperrt" ? "#4f46e5" : "#eef0fe", color: quota.stufe === "gesperrt" ? "#fff" : "#4f46e5" }}>
+                {quota.stufe === "trial" ? t(`🎁 ${quota.trial_left} gratis · ✨ ${quota.plus_name}`, `🎁 ${quota.trial_left} free · ✨ ${quota.plus_name}`) : `✨ ${quota.plus_name}`}
+              </button>
+            )}
           </div>
           {user?.email_verified === false && mailOk && (
             <div style={{ background: "#fdf3e6", borderBottom: "1px solid #f2ddb8", padding: "8px 16px", fontSize: 12.5, color: "#a05c12", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>

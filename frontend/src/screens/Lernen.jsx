@@ -252,6 +252,38 @@ function Confetti() {
   );
 }
 
+function chf(rappen) {
+  const v = (rappen / 100).toFixed(2);
+  return v.endsWith(".00") ? v.slice(0, -3) + ".–" : v;
+}
+
+// Waehrend der Probe: sagen, wie es danach weitergeht – bevor sie zu Ende ist.
+function PlusHinweis({ quota, onOpen }) {
+  const { t } = useLang();
+  if (!quota?.abo_enabled || quota.unlimited || !["trial", "gesperrt"].includes(quota.stufe)) return null;
+  const name = quota.plus_name || "Kniff Plus";
+  const leer = quota.stufe === "gesperrt";
+  return (
+    <div style={{ marginTop: 26, textAlign: "left", background: "#fff", border: `1px solid ${leer ? "#f0e2c4" : "#dfe1fb"}`, borderRadius: 16, padding: "16px 18px" }}>
+      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>
+        {leer
+          ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
+          : t(`🎁 Noch ${quota.trial_left} von ${quota.trial_tasks} Gratis-Aufgaben`, `🎁 ${quota.trial_left} of ${quota.trial_tasks} free tasks left`)}
+      </div>
+      <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.55, marginBottom: 12 }}>
+        {t(`${leer ? "Mit" : "Danach geht es mit"} ${name} ${leer ? "übst du weiter" : "weiter"}: ${quota.plus_tokens_monat} Tokens jeden Monat (rund 35 bis 40 Aufgaben) für CHF ${chf(quota.preise.monat)} im Monat oder ${chf(quota.preise.jahr)} im Jahr. Jederzeit kündbar – deine Eltern können es auch für dich abschliessen.`,
+           `${leer ? "With" : "After that you continue with"} ${name}${leer ? " you keep practising" : ""}: ${quota.plus_tokens_monat} tokens every month (around 35 to 40 tasks) for CHF ${chf(quota.preise.monat)} a month or ${chf(quota.preise.jahr)} a year. Cancel anytime – your parents can also subscribe for you.`)}
+      </div>
+      <button onClick={onOpen} className={leer ? "btn-primary" : undefined}
+        style={leer
+          ? { border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }
+          : { border: "1px solid #dfe1fb", background: "#eef0fe", color: "#4f46e5", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+        {leer ? t(`${name} aktivieren →`, `Activate ${name} →`) : t(`${name} ansehen →`, `See ${name} →`)}
+      </button>
+    </div>
+  );
+}
+
 export default function Lernen() {
   const { attemptId } = useParams();
   const nav = useNavigate();
@@ -545,6 +577,7 @@ export default function Lernen() {
             <button onClick={() => shell.openNewTask()} className="btn-primary" style={{ padding: "13px 22px", borderRadius: 12, fontSize: 15 }}>
               {t("+ Neue Aufgabe", "+ New task")}
             </button>
+            <PlusHinweis quota={shell.quota} onOpen={() => nav("/app/preise")} />
           </div>
         </div>
       </div>
