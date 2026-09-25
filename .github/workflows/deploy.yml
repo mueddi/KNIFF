@@ -92,7 +92,10 @@ jobs:
           # Aufgefallen ist es nur, weil der Smoke-Test die Datenbank-Auskunft
           # prueft. Ein Deploy, der luegt, ist schlimmer als gar keiner.
           set -o pipefail
-          npx --yes vercel@latest deploy --prod --yes --token "$VERCEL_TOKEN" | tee deploy-url.txt
+          # Feste CLI-Version statt @latest: eine neue Vercel-Version kann den
+          # Deploy sonst ohne jede Aenderung bei uns brechen. 60.0.1 lief am
+          # 25.9. gruen (Laeufe 127, 128). Anheben bewusst, per Pull Request.
+          npx --yes vercel@60.0.1 deploy --prod --yes --token "$VERCEL_TOKEN" | tee deploy-url.txt
 
           # Zweiter Riegel: auch ein Befehl mit Status 0 muss eine Adresse
           # geliefert haben, sonst ging nichts live.
