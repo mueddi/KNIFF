@@ -335,6 +335,9 @@ class QuotaOut(BaseModel):
     abo_bis: str | None = None
     abo_gekuendigt: bool = False
     abo_intervall: str | None = None
+    # Abo-Tokens des laufenden Abo-Monats (verfallen), token_balance = gekauft
+    abo_tokens: int = 0
+    abo_neu: str | None = None  # Beginn des naechsten Abo-Monats
 
 
 # ---------- Parent ----------

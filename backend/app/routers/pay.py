@@ -3,12 +3,14 @@
 Ablauf: Frontend ruft /checkout auf -> Stripe-Bezahlseite (Karte/TWINT,
 mode=subscription) -> Stripe meldet per signiertem Webhook, was mit dem Abo
 passiert (abgeschlossen, verlaengert, gekuendigt, beendet) -> abo_bis am
-Konto wird nachgefuehrt und jede bezahlte Rechnung schreibt die Abo-Tokens
-gut (plus_tokens_monat, Jahresabo zwoelffach). Kuendigen laeuft ueber die
-eigenen Endpunkte (cancel_at_period_end), kein Stripe-Kundenportal noetig.
+Konto wird nachgefuehrt. Die Abo-Tokens bucht keine Rechnung: solange abo_bis
+in der Zukunft liegt, gibt services/quota jeden Abo-Monat frische
+plus_tokens_monat (der Rest verfaellt), beim Jahresabo Monat fuer Monat.
+Kuendigen laeuft ueber die eigenen Endpunkte (cancel_at_period_end), kein
+Stripe-Kundenportal noetig.
 
 Token-Pakete (/tokens, mode=payment) gibt es nur mit aktivem Abo; sie landen
-im selben Guthaben wie die Abo-Gutschrift, nichts davon verfaellt.
+im gekauften Guthaben (token_balance) und verfallen nie.
 
 Die Stripe-API wird direkt über httpx angesprochen (form-encoded REST), die
 Webhook-Signatur (HMAC-SHA256) wird mit der Standardbibliothek geprüft –
@@ -254,26 +256,18 @@ def tokens_kaufen(request: Request, payload: TokenKaufRequest | None = None,
     return {"url": session["url"]}
 
 
-def _abo_tokens(intervall: str | None) -> int:
-    """Was eine bezahlte Abo-Rechnung gutschreibt: ein Monat, beim Jahresabo
-    zwoelf auf einmal."""
-    return settings.plus_tokens_monat * (12 if intervall == "jahr" else 1)
-
-
-def _gutschrift(db: Session, user: User, kennung: str, betrag: int | None, tokens: int) -> bool:
-    """Tokens gutschreiben, genau einmal pro Kennung (Rechnungs- oder
+def _zahlung_verbuchen(db: Session, user: User, kennung: str, betrag: int | None) -> bool:
+    """Abo-Zahlung festhalten, genau einmal pro Kennung (Rechnungs- oder
     Session-ID): die Payment-Zeile mit unique session_id ist der Riegel.
-    Rueckgabe: ob gutgeschrieben wurde."""
+    Tokens bucht sie keine (tokens=0) - die Abo-Tokens kommen monatlich aus
+    services/quota. Rueckgabe: ob neu verbucht wurde."""
     db.add(Payment(user_id=user.id, session_id=kennung,
-                   amount_rappen=betrag if isinstance(betrag, int) else 0, tokens=tokens))
+                   amount_rappen=betrag if isinstance(betrag, int) else 0, tokens=0))
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
         return False
-    if tokens > 0:
-        db.execute(update(User).where(User.id == user.id)
-                   .values(token_balance=User.token_balance + tokens))
     return True
 
 
@@ -379,14 +373,12 @@ def _abo_abgeschlossen(db: Session, session: dict) -> None:
         # Nie ein bezahltes Kind aussperren: vorlaeufig; invoice.paid korrigiert.
         ende = _utcnow_naiv() + timedelta(days=367 if intervall == "jahr" else 32)
     user.abo_bis = ende
-    # Erste Gutschrift. Kennung ist die Rechnung der Session, damit das
-    # invoice.paid derselben Rechnung nicht ein zweites Mal gutschreibt -
+    # Zahlung festhalten. Kennung ist die Rechnung der Session, damit das
+    # invoice.paid derselben Rechnung sie nicht ein zweites Mal verbucht -
     # egal, welches der beiden Ereignisse zuerst eintrifft.
     kennung = session.get("invoice") if isinstance(session.get("invoice"), str) else session.get("id")
     if kennung:
-        tokens = _abo_tokens(intervall)
-        if _gutschrift(db, user, kennung, session.get("amount_total"), tokens):
-            log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (%s)", user.id, tokens, kennung)
+        _zahlung_verbuchen(db, user, kennung, session.get("amount_total"))
     log.info("Abo abgeschlossen: Nutzer %s, %s, bis %s", user.id, intervall, ende)
 
 
@@ -414,18 +406,14 @@ def _abo_verlaengert(db: Session, invoice: dict) -> None:
             pass
     if ende and (user.abo_bis is None or ende > user.abo_bis):
         user.abo_bis = ende
-    # Abo-Tokens gutschreiben: Intervall aus der Rechnungszeile, sonst vom Konto.
-    intervall = user.abo_intervall
+    # Intervall aus der Rechnungszeile nachfuehren (Anzeige «Monat»/«Jahr»).
     for line in lines:
         recurring = ((line.get("price") or {}).get("recurring") or {}) or (line.get("plan") or {})
         if recurring.get("interval") in ("month", "year"):
-            intervall = "jahr" if recurring["interval"] == "year" else "monat"
+            user.abo_intervall = "jahr" if recurring["interval"] == "year" else "monat"
             break
-    if invoice.get("id"):
-        tokens = _abo_tokens(intervall)
-        if not _gutschrift(db, user, invoice["id"], invoice.get("amount_paid"), tokens):
-            return  # schon verbucht (z.B. ueber checkout.session.completed)
-        log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (Rechnung %s)", user.id, tokens, invoice["id"])
+    if invoice.get("id") and not _zahlung_verbuchen(db, user, invoice["id"], invoice.get("amount_paid")):
+        return  # schon verbucht (z.B. ueber checkout.session.completed)
     log.info("Abo verlaengert: Nutzer %s bis %s (Rechnung %s)", user.id, user.abo_bis, invoice.get("id"))
 
 
