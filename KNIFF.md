@@ -91,7 +91,7 @@ Seit dem 9.9.2026 im Code, live erst mit `ABO_ENABLED=true` (im
 - **Stripe:** Checkout mit `mode=subscription` und Preis inline (nichts im
   Stripe-Dashboard anzulegen); Kündigen über `POST /api/pay/abo/kuendigen`
   (`cancel_at_period_end`), kein Kundenportal. Jeder Aufruf mit
-  `Stripe-Version: 2026-05-27` – TWINT-Abos gibt es erst ab dieser Version.
+  `Stripe-Version: 2026-05-27.dahlia` – TWINT-Abos gibt es erst ab dieser Version; Stripe verlangt den Namenszusatz (`.dahlia`), ein nacktes Datum lehnt es ab.
   Der Webhook braucht **vier** Ereignisse: `checkout.session.completed`,
   `invoice.paid`, `customer.subscription.updated`,
   `customer.subscription.deleted` – idempotent über `stripe_events`.

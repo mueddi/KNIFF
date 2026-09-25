@@ -91,6 +91,15 @@ def test_checkout_startet_ein_abo(client, stripe):
     assert data["line_items[0][price_data][unit_amount]"] == str(settings.plus_preis_jahr_rappen)
 
 
+def test_stripe_version_hat_den_namenszusatz():
+    """Stripe nimmt nur «Datum.Name» an (z.B. 2026-05-27.dahlia). Ein nacktes
+    Datum lehnt es bei jedem Aufruf mit 400 ab – so geschehen am 25.9."""
+    import re
+
+    assert re.fullmatch(r"\d{4}-\d{2}-\d{2}\.[a-z]+", settings.stripe_api_version), settings.stripe_api_version
+    assert settings.stripe_api_version.startswith("2026-05-27")  # TWINT-Abos gibt es erst ab hier
+
+
 def test_checkout_mit_aktivem_abo_ist_409(client, stripe):
     headers = register_pw(client, "mia@test.ch")
     with SessionLocal() as db:
