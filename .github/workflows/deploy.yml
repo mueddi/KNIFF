@@ -39,7 +39,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
 
       # Secrets kommen als gitignore'd Sidecar ins Deployment-Paket (api/index.py liest sie);
       # sie landen NIE im Git-Verlauf. Das separate Secret ANTHROPIC_API_KEY (einzeiliger
