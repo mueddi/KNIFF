@@ -132,6 +132,53 @@ jobs:
           assert d['datenbank'] is True, 'Datenbank nicht erreichbar'
           "
 
+      # Die Oberflaeche: Startseite UND das Programm dahinter. Eine Seite, die
+      # 200 liefert, aber ein kaputtes oder fehlendes JS-Paket laedt, ist fuer
+      # Besucher weiss – der alte Rauchtest haette das nie bemerkt.
+      - name: Startseite und App-Paket werden ausgeliefert
+        run: |
+          code=$(curl -sS -o /tmp/start.html -w "%{http_code}" "https://kniff.app/")
+          echo "Startseite: HTTP $code"
+          [ "$code" = "200" ] || exit 1
+          grep -q '<div id="root">' /tmp/start.html || { echo "::error::Startseite ohne App-Wurzel"; exit 1; }
+          js=$(grep -o '/assets/index-[A-Za-z0-9_-]*\.js' /tmp/start.html | head -1)
+          [ -n "$js" ] || { echo "::error::Kein App-Paket in der Startseite verlinkt"; exit 1; }
+          code=$(curl -sS -o /tmp/app.js -w "%{http_code}" "https://kniff.app$js")
+          groesse=$(wc -c < /tmp/app.js)
+          echo "App-Paket $js: HTTP $code, $groesse Bytes"
+          [ "$code" = "200" ] && [ "$groesse" -gt 100000 ] || { echo "::error::App-Paket fehlt oder ist zu klein"; exit 1; }
+          grep -q "Mathe verstehen" /tmp/app.js || { echo "::error::App-Paket enthaelt die Startseite nicht"; exit 1; }
+
+      - name: Unterseiten liefern die App (kein 404 beim direkten Aufruf)
+        run: |
+          for pfad in /login /agb /datenschutz /impressum /app/lernen /app/preise /eltern; do
+            code=$(curl -sS -o /tmp/seite.html -w "%{http_code}" "https://kniff.app$pfad")
+            echo "$pfad: HTTP $code"
+            [ "$code" = "200" ] && grep -q '<div id="root">' /tmp/seite.html || { echo "::error::$pfad liefert die App nicht"; exit 1; }
+          done
+
+      - name: Oeffentliche Preisauskunft stimmt mit der Gesundheitsauskunft ueberein
+        run: |
+          curl -sS -o /tmp/preise.json "https://kniff.app/api/pay/preise"
+          cat /tmp/preise.json; echo ""
+          python3 -c "
+          import json
+          p = json.load(open('/tmp/preise.json'))
+          h = json.load(open('/tmp/health.json'))
+          for k in ('abo_enabled', 'plus_name', 'monat_rappen', 'jahr_rappen', 'trial_tasks', 'plus_tokens_monat', 'pakete'):
+              assert k in p, k
+          assert p['monat_rappen'] > 0 and p['jahr_rappen'] > 0 and p['plus_tokens_monat'] > 0, p
+          assert p['zahlung'] == h['zahlung'], (p, h)
+          "
+
+      - name: Ohne Anmeldung kein Zugriff
+        run: |
+          for pfad in /api/quota /api/admin/kosten /api/admin/nutzer /api/feedback /api/auth/me; do
+            code=$(curl -sS -o /dev/null -w "%{http_code}" "https://kniff.app$pfad")
+            echo "$pfad ohne Anmeldung: HTTP $code"
+            [ "$code" = "401" ] || { echo "::error::$pfad ist ohne Anmeldung erreichbar ($code)"; exit 1; }
+          done
+
       - name: Registrierung (200 beim ersten Mal, 409 danach – beides ok)
         run: |
           code=$(curl -sS -o /tmp/reg.json -w "%{http_code}" -X POST \
