@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -34,7 +34,7 @@ from .. import i18n
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ParentLink, Payment, Plan, Role, StripeEvent, User
+from ..models import ParentLink, Payment, Plan, Role, StripeEvent, TokenAdjustment, User
 from ..schemas import AboRequest, CheckoutRequest, TokenKaufRequest
 from ..services import alert, quota
 from ..services.quota import PAKETE as PACKAGES
@@ -533,10 +533,83 @@ def _paket_gutschrift(db: Session, session: dict) -> None:
     log.info("Zahlung verbucht: Nutzer %s, +%s Tokens (%s, Session %s)", user.id, pkg["tokens"], pkg_key, session["id"])
 
 
+def _kauf_zur_zahlung(db: Session, obj: dict) -> tuple[Payment | None, str | None]:
+    """Welcher Kauf steckt hinter einer Charge bzw. einem Streitfall?
+
+    Stripe meldet Erstattung und Streitfall an der Zahlung (payment_intent),
+    die App kennt aber die Bezahlseite (Checkout-Session). Also fragen wir
+    Stripe nach der Session zu dieser Zahlung. Rueckgabe: (Payment-Zeile oder
+    None, Modus der Session "payment"|"subscription"|None). Ist Stripe nicht
+    erreichbar, fliegt die HTTPException durch - der Webhook antwortet mit
+    Fehler, das Ereignis bleibt unverbucht und Stripe versucht es erneut."""
+    pi = obj.get("payment_intent")
+    if not isinstance(pi, str) or not pi:
+        return None, None
+    sessions = (_stripe("GET", f"/v1/checkout/sessions?payment_intent={pi}").get("data")) or []
+    for s in sessions:
+        sid = s.get("id")
+        zahlung = db.query(Payment).filter(Payment.session_id == sid).one_or_none() if sid else None
+        return zahlung, s.get("mode")
+    return None, None
+
+
+def _tokens_zurueckbuchen(db: Session, zahlung: Payment, charge_id: str, ziel: int, art: str) -> int:
+    """Nimmt die Tokens eines erstatteten/angefochtenen Pakets wieder weg -
+    insgesamt hoechstens ``ziel`` je Charge (Stripe meldet Erstattungen
+    kumuliert; Teil- und Folge-Erstattungen buchen nur die Differenz). Das
+    Guthaben faellt nie unter 0: schon Verbrauchtes ist verbraucht. Jede
+    Buchung steht als TokenAdjustment im Protokoll. Rueckgabe: abgezogen."""
+    marke = f"Stripe-Rueckbuchung {charge_id}"
+    schon = -int(db.scalar(
+        select(func.coalesce(func.sum(TokenAdjustment.tokens), 0))
+        .where(TokenAdjustment.user_id == zahlung.user_id, TokenAdjustment.reason.like(f"{marke}%"))
+    ) or 0)
+    abzug = min(ziel, zahlung.tokens) - schon
+    if abzug <= 0:
+        return 0
+    db.add(TokenAdjustment(user_id=zahlung.user_id, admin_id=None, tokens=-abzug, reason=f"{marke} ({art})"))
+    db.execute(update(User).where(User.id == zahlung.user_id).values(
+        token_balance=case((User.token_balance - abzug > 0, User.token_balance - abzug), else_=0)))
+    log.info("%s: Nutzer %s -%s Tokens (Charge %s)", art, zahlung.user_id, abzug, charge_id)
+    return abzug
+
+
+def _erstattet(db: Session, charge: dict) -> None:
+    """charge.refunded: bei einem Token-Paket die erstatteten Tokens abziehen
+    (1 Token = 1 Rappen, also so viele wie Rappen erstattet). Alles andere -
+    etwa eine erstattete Abo-Rechnung - braucht einen Blick des Betreibers."""
+    cid = charge.get("id") or "?"
+    zahlung, modus = _kauf_zur_zahlung(db, charge)
+    betrag = f"CHF {int(charge.get('amount_refunded') or 0) / 100:.2f}"
+    if zahlung is None or modus != "payment":
+        alert.notify("zahlung", f"Erstattung {cid} ({betrag}) gehoert zu keinem Token-Paket der App"
+                     f"{' (Abo-Zahlung)' if modus == 'subscription' else ''} – im Stripe-Dashboard pruefen, "
+                     "ob das Abo beendet werden soll.", key=cid)
+        return
+    _tokens_zurueckbuchen(db, zahlung, cid, int(charge.get("amount_refunded") or 0), "Erstattung")
+
+
+def _angefochten(db: Session, dispute: dict) -> None:
+    """charge.dispute.created: jemand hat die Zahlung bei der Bank angefochten.
+    Der Betreiber muss in Stripe fristgerecht antworten -> immer Alarm. Bei
+    einem Token-Paket sind die Tokens sofort weg (das Geld ist es auch)."""
+    cid = dispute.get("charge") if isinstance(dispute.get("charge"), str) else "?"
+    betrag = f"CHF {int(dispute.get('amount') or 0) / 100:.2f}"
+    alert.notify("zahlung", f"Zahlung angefochten: Streitfall {dispute.get('id')} zu Charge {cid} ({betrag}). "
+                 "Im Stripe-Dashboard vor Ablauf der Frist Belege einreichen oder akzeptieren.",
+                 key=str(dispute.get("id")))
+    zahlung, modus = _kauf_zur_zahlung(db, dispute)
+    if zahlung is not None and modus == "payment":
+        _tokens_zurueckbuchen(db, zahlung, cid, zahlung.tokens, "Streitfall")
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Von Stripe aufgerufen. Fuehrt Abos nach, schreibt Abo-Tokens und
-    Paket-Kaeufe gut – idempotent pro Ereignis-ID, immer 200 (sonst Retry-Sturm)."""
+    Paket-Kaeufe gut, bucht erstattete/angefochtene Pakete zurueck –
+    idempotent pro Ereignis-ID, 200 (sonst Retry-Sturm); nur wenn Stripe
+    selbst fuer eine Rueckfrage nicht erreichbar ist, ein Fehler, damit
+    Stripe das Ereignis spaeter nochmal schickt."""
     if not settings.payments_enabled:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Zahlung nicht konfiguriert.")
     payload = await request.body()
@@ -563,6 +636,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         "invoice.paid": lambda: _abo_verlaengert(db, obj),
         "customer.subscription.updated": lambda: _abo_geaendert(db, obj, geloescht=False),
         "customer.subscription.deleted": lambda: _abo_geaendert(db, obj, geloescht=True),
+        "charge.refunded": lambda: _erstattet(db, obj),
+        "charge.dispute.created": lambda: _angefochten(db, obj),
     }.get(typ)
     if handler is None:
         return {"received": True}
