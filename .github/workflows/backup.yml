@@ -4,6 +4,10 @@ name: Backup (Datenbank)
 # In der DB stehen gekaufte Guthaben und Zahlungen – die duerfen nie
 # verloren gehen. Wiederherstellung: siehe docs/BACKUP.md
 #
+# Danach spielt der Job «probe» genau diese Sicherung in eine leere
+# Postgres-Datenbank zurueck und zaehlt nach: eine Sicherung, die sich nie
+# zurueckspielen liess, ist keine. Wird sie rot, ist das Backup unbrauchbar.
+#
 # Benoetigte Secrets (Settings -> Secrets and variables -> Actions):
 #   DATABASE_URL     Supabase "Session pooler"-Connection-String
 #   BACKUP_PASSWORD  verschluesselt das Artefakt (Pflicht: im Dump stehen
@@ -21,6 +25,8 @@ jobs:
   dump:
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    outputs:
+      zaehlung: ${{ steps.zaehlen.outputs.zaehlung }}
     steps:
       - name: Secrets prüfen
         env:
@@ -35,6 +41,18 @@ jobs:
             echo "::error::Secret BACKUP_PASSWORD fehlt – ohne Verschlüsselung läge die Sicherung mit Nutzern und Zahlungen 90 Tage im Klartext für jeden mit Repo-Zugriff. Kein Backup ohne Passwort."
             exit 1
           fi
+
+      # Unmittelbar vor der Sicherung zaehlen – der Job «probe» vergleicht
+      # damit. Nur Zahlen, keine Inhalte.
+      - name: Zeilen in der Produktion zählen
+        id: zaehlen
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          SQL="select 'users='||(select count(*) from users)||' payments='||(select count(*) from payments)||' exercises='||(select count(*) from exercises)||' messages='||(select count(*) from messages)"
+          z=$(docker run --rm -e DATABASE_URL -e SQL="$SQL" postgres:17 sh -c 'psql "$DATABASE_URL" -Atc "$SQL"')
+          echo "Produktion: $z"
+          echo "zaehlung=$z" >> "$GITHUB_OUTPUT"
 
       # pg_dump aus dem offiziellen postgres:17-Container: passt immer zur
       # Supabase-Serverversion, unabhaengig vom Runner-Image.
@@ -65,3 +83,72 @@ jobs:
           path: schrittweise.dump*
           retention-days: 90
           if-no-files-found: error
+
+  # Zurueckspielen: dieselbe Sicherung entschluesseln und in eine leere
+  # Postgres 17 laden (nur das Schema «public» mit den App-Tabellen – die
+  # Supabase-eigenen Schemata brauchen Supabase-Rollen und gehoeren nicht zur
+  # App). Danach muss jede gezaehlte Tabelle mindestens so viele Zeilen haben
+  # wie kurz vor der Sicherung (dazwischen kann hoechstens etwas dazukommen).
+  probe:
+    needs: dump
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: probe
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: db-backup-${{ github.run_id }}
+
+      - name: Entschlüsseln
+        env:
+          BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
+        run: |
+          openssl enc -d -aes-256-cbc -pbkdf2 -pass env:BACKUP_PASSWORD \
+            -in schrittweise.dump.enc -out schrittweise.dump
+          ls -lh schrittweise.dump
+
+      - name: In leere Datenbank zurückspielen
+        run: |
+          docker run --rm --network host -v "$PWD:/d" postgres:17 \
+            pg_restore --no-owner --no-privileges --schema=public \
+            -d postgresql://postgres:probe@localhost:5432/postgres /d/schrittweise.dump \
+            2> restore.log || true
+          # Warnungen gibt es immer ein paar (Supabase-Eigenheiten); die Zaehlung
+          # unten entscheidet. Die Meldungen stehen im Protokoll.
+          echo "pg_restore-Meldungen: $(grep -c . restore.log || true)"
+          head -40 restore.log
+
+      - name: Nachzählen
+        env:
+          PRODUKTION: ${{ needs.dump.outputs.zaehlung }}
+        run: |
+          echo "Produktion vor der Sicherung: $PRODUKTION"
+          fehler=0
+          for paar in $PRODUKTION; do
+            tabelle=${paar%%=*}; soll=${paar#*=}
+            ist=$(docker run --rm --network host postgres:17 psql postgresql://postgres:probe@localhost:5432/postgres \
+                  -Atc "select count(*) from public.$tabelle" 2>/dev/null || echo "fehlt")
+            echo "$tabelle: Produktion $soll · zurückgespielt $ist"
+            if [ "$ist" = "fehlt" ] || [ "$ist" -lt "$soll" ]; then
+              echo "::error::Tabelle $tabelle: zurückgespielt $ist, in der Produktion waren es $soll."
+              fehler=1
+            fi
+          done
+          [ -n "$PRODUKTION" ] || { echo "::error::Keine Zählung aus dem Sicherungs-Job."; fehler=1; }
+          case "$PRODUKTION" in *"users=0 "*) echo "::error::Produktion meldet 0 Nutzer – verdächtig."; fehler=1;; esac
+          {
+            echo "## Backup-Probe"
+            echo ""
+            echo "Die Sicherung dieses Laufs wurde in eine leere Datenbank zurückgespielt und nachgezählt."
+            echo ""
+            echo "Produktion vor der Sicherung: \`$PRODUKTION\`"
+            [ "$fehler" = 0 ] && echo "" && echo "**Ergebnis: zurückspielbar ✓**"
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $fehler

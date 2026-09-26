@@ -248,7 +248,10 @@ function AboTab({ onBuy }) {
   );
 
   if (quota.abo_enabled && !quota.unlimited) {
-    const datum = quota.abo_bis ? new Date(quota.abo_bis).toLocaleDateString(lang === "en" ? "en-GB" : "de-CH") : "";
+    const tag = (iso) => (iso ? new Date(iso).toLocaleDateString(lang === "en" ? "en-GB" : "de-CH") : "");
+    const datum = tag(quota.abo_bis);
+    // Letzter Abo-Monat eines gekuendigten Abos: danach kommen keine neuen Abo-Tokens.
+    const neueAboTokens = quota.abo_neu && !(quota.abo_gekuendigt && quota.abo_bis && new Date(quota.abo_neu) >= new Date(quota.abo_bis));
     const karte = { background: "#fff", border: "1px solid #e7e8ee", borderRadius: 14, padding: 20, maxWidth: 620, marginBottom: 16 };
     return (
       <>
@@ -264,11 +267,19 @@ function AboTab({ onBuy }) {
                 : t(`${quota.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar.`,
                     `${quota.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime.`)}
             </div>
-            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 12, color: quota.token_balance > 0 ? "#1a1c22" : "#d9573a" }}>
-              ⚡ {t(`Guthaben: ${quota.token_balance} Tokens`, `Balance: ${quota.token_balance} tokens`)}
+            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 14, color: quota.abo_tokens > 0 ? "#1a1c22" : "#d9573a" }}>
+              ✨ {t(`Abo-Tokens diesen Monat: ${quota.abo_tokens} von ${quota.plus_tokens_monat}`, `Subscription tokens this month: ${quota.abo_tokens} of ${quota.plus_tokens_monat}`)}
             </div>
-            <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 4 }}>
-              {t(`Jede Abo-Rechnung schreibt ${quota.plus_tokens_monat} Tokens gut; unverbrauchte bleiben. Reicht es nicht, lad ein Paket nach:`, `Each subscription invoice credits ${quota.plus_tokens_monat} tokens; unused ones carry over. If it is not enough, top up a package:`)}
+            <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 3 }}>
+              {neueAboTokens
+                ? t(`Am ${tag(quota.abo_neu)} gibt es wieder ${quota.plus_tokens_monat}. Was bis dann übrig ist, verfällt.`, `On ${tag(quota.abo_neu)} you get ${quota.plus_tokens_monat} again. Whatever is left by then expires.`)
+                : t("Was bis zum Abo-Ende übrig ist, verfällt.", "Whatever is left when the subscription ends expires.")}
+            </div>
+            <div style={{ fontSize: 15, fontWeight: 700, marginTop: 12 }}>
+              ⚡ {t(`Gekaufte Tokens: ${quota.token_balance}`, `Purchased tokens: ${quota.token_balance}`)}
+            </div>
+            <div style={{ fontSize: 12.5, color: "#6b7280", marginTop: 3 }}>
+              {t("Verfallen nie. Sie werden erst gebraucht, wenn die Abo-Tokens des Monats weg sind. Nachladen:", "Never expire. They are only used once this month's subscription tokens are gone. Top up:")}
             </div>
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 10 }}>
               {(quota.pakete || []).map((p) => (
@@ -307,7 +318,7 @@ function AboTab({ onBuy }) {
             <div style={{ fontSize: 14, fontWeight: 700, color: "#c9ccf6", marginBottom: 6 }}>{quota.plus_name}</div>
             <div style={{ fontSize: 22, fontWeight: 800, letterSpacing: "-.02em" }}>CHF {chf(quota.preise.monat)} <span style={{ fontSize: 13, color: "#9aa0ab", fontWeight: 500 }}>{t("im Monat", "per month")}</span></div>
             <div style={{ fontSize: 12.5, color: "#9aa0ab", marginBottom: 12 }}>{t(`oder CHF ${chf(quota.preise.jahr)} im Jahr · pro Kind · jederzeit kündbar`, `or CHF ${chf(quota.preise.jahr)} per year · per child · cancel anytime`)}</div>
-            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{t(`${quota.plus_tokens_monat} Tokens im Monat (rund 35 bis 40 Aufgaben), unverbrauchte bleiben – Foto, Stift, Aufgabensammlung, Probeprüfungen, Elternansicht.`, `${quota.plus_tokens_monat} tokens a month (around 35 to 40 tasks), unused ones carry over – photo, pen, task collection, mock exams, parent view.`)}</div>
+            <div style={{ fontSize: 13, lineHeight: 1.6, marginBottom: 14 }}>{t(`${quota.plus_tokens_monat} Tokens jeden Monat (rund 35 bis 40 Aufgaben) – Foto, Stift, Aufgabensammlung, Probeprüfungen, Elternansicht. Reicht es nicht, lädst du Tokens nach.`, `${quota.plus_tokens_monat} tokens every month (around 35 to 40 tasks) – photo, pen, task collection, mock exams, parent view. If it is not enough, top up tokens.`)}</div>
             <button onClick={onBuy} className="btn-primary" style={{ padding: "11px 20px", borderRadius: 11, fontSize: 14, border: "none" }}>
               {t(`${quota.plus_name} aktivieren →`, `Activate ${quota.plus_name} →`)}
             </button>
@@ -475,8 +486,8 @@ export function DeleteAccount() {
   async function doDelete() {
     const ja = await dialog.bestaetigen({
       titel: t("Konto endgültig löschen?", "Delete your account for good?"),
-      text: t("Aufgaben, Chats und dein Token-Guthaben sind danach unwiderruflich weg. Das lässt sich nicht rückgängig machen.",
-              "Tasks, chats and your token balance will be gone for good. This cannot be undone."),
+      text: t("Aufgaben, Chats und dein Token-Guthaben sind danach unwiderruflich weg. Ein laufendes Abo wird dabei sofort beendet, danach wird nichts mehr abgebucht. Das lässt sich nicht rückgängig machen.",
+              "Tasks, chats and your token balance will be gone for good. A running subscription is ended right away, nothing is charged afterwards. This cannot be undone."),
       bestaetigen: t("Endgültig löschen", "Delete permanently"),
       gefahr: true,
     });
@@ -497,8 +508,8 @@ export function DeleteAccount() {
     <div style={{ border: "1px solid #f2c9c0", background: "#fdf6f4", borderRadius: 14, padding: 16, marginTop: 24 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: "#b3492f", marginBottom: 4 }}>{t("Konto löschen", "Delete account")}</div>
       <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.55, marginBottom: 12 }}>
-        {t("Löscht dein Konto mit allen Aufgaben, Chats, Bildern und deinem Token-Guthaben – endgültig. Zahlungsbelege bleiben beim Zahlungsanbieter (gesetzliche Aufbewahrung).",
-           "Deletes your account with all tasks, chats, images and your token balance – permanently. Payment records remain with the payment provider (legal retention).")}
+        {t("Löscht dein Konto mit allen Aufgaben, Chats, Bildern und deinem Token-Guthaben – endgültig. Ein laufendes Abo wird dabei sofort beendet. Zahlungsbelege bleiben beim Zahlungsanbieter (gesetzliche Aufbewahrung).",
+           "Deletes your account with all tasks, chats, images and your token balance – permanently. A running subscription is ended right away. Payment records remain with the payment provider (legal retention).")}
       </div>
       {!open ? (
         <button onClick={() => setOpen(true)} style={{ border: "1px solid #e5b0a4", background: "#fff", color: "#b3492f", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>

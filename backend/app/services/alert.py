@@ -22,6 +22,7 @@ KIND_LABEL = {
     "ki": "KI-Tutor nicht erreichbar",
     "ocr": "Handschrift-Erkennung ausgefallen",
     "webhook": "Stripe-Webhook abgelehnt",
+    "zahlung": "Zahlung / Abo braucht Handarbeit",
     "mail": "Mailversand fehlgeschlagen",
     "server": "Server-Fehler",
     "client": "Fehler in der App (Browser)",

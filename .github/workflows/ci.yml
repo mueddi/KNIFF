@@ -27,7 +27,42 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - run: python -m pytest tests/ -q -rs
+        env:
+          # Nur ein Stripe-TEST-Schluessel (sk_test_…). Fehlt er, wird der
+          # Test gegen den echten Stripe-Testmodus uebersprungen, nicht rot.
+          STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+
+  # Dieselben Tests gegen eine echte Postgres wie in der Produktion. SQLite
+  # sperrt beim Schreiben die ganze Datei und verdeckt damit genau die Fehler,
+  # die bei Geld wehtun: verlorene Abbuchungen, wenn zwei Anfragen
+  # gleichzeitig kommen (tests/test_gleichzeitig.py wird nur hier rot).
+  backend-postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: test
+          POSTGRES_DB: kniff_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
       - run: python -m pytest tests/ -q
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://postgres:test@localhost:5432/kniff_test
 
   frontend-build:
     runs-on: ubuntu-latest
@@ -39,7 +74,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
@@ -62,7 +97,7 @@ jobs:
       - run: pip install -r backend/requirements-dev.txt
       - uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "24"
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
