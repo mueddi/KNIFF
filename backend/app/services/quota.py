@@ -3,11 +3,13 @@
 Mit Kniff Plus (settings.abo_enabled) gilt die Reihenfolge
 
     school    Betreiber- und Schul-Konten: nie eine Abbuchung
-    plus      Abo aktiv (abo_bis liegt in der Zukunft). Das Abo schreibt jeden
-              Abrechnungsmonat plus_tokens_monat Tokens aufs Guthaben
-              (routers/pay.py, Webhook); abgebucht wird vom Guthaben. Ist es
-              leer, ist zu - Nachschub gibt es als Token-Paket (nur mit Abo)
-              oder mit der naechsten Gutschrift. Unverbrauchte Tokens bleiben.
+    plus      Abo aktiv (abo_bis liegt in der Zukunft). Jeder Abo-Monat bringt
+              frische plus_tokens_monat Abo-Tokens (abo_tokens); was davon
+              uebrig bleibt, verfaellt mit dem Monat - auch beim Jahresabo,
+              Monat fuer Monat. Abgebucht wird zuerst vom Abo, dann vom
+              gekauften Guthaben (token_balance, Token-Pakete, verfaellt nie).
+              Sind beide leer, ist zu - Nachschub gibt es als Paket (nur mit
+              Abo) oder mit dem naechsten Abo-Monat.
     trial     die ersten trial_tasks AUFGABEN sind gratis - einmalig, nicht
               monatlich; weitere Runden und Wiederholungen dieser Aufgaben
               bleiben frei
@@ -22,6 +24,7 @@ zaehlt mit Plus den GESAMTEN Verbrauch (Anzeige), nicht nur den Gratis-Anteil.
 """
 from __future__ import annotations
 
+import calendar
 from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
@@ -34,7 +37,7 @@ from ..models import Attempt, Plan, User
 from .timezone import LOCAL_TZ
 
 # Nachkauf-Pakete fuer Abonnenten. 1 Token = 1 Rappen - Paketmenge = Preis in
-# Rappen. Derselbe Topf wie die Abo-Gutschrift; nichts davon verfaellt.
+# Rappen. Landet im gekauften Guthaben (token_balance) und verfaellt nie.
 PAKETE = {
     "schnupper": {"tokens": 200, "rappen": 200, "name": "Kniff Schnupper-Paket – 200 Tokens"},
     "starter": {"tokens": 900, "rappen": 900, "name": "Kniff Starter-Paket – 900 Tokens"},
@@ -59,6 +62,45 @@ def is_unlimited(user: User) -> bool:
 
 def plus_aktiv(user: User) -> bool:
     return user.abo_bis is not None and user.abo_bis > _utcnow_naiv()
+
+
+def _monate_zurueck(dt: datetime, k: int) -> datetime:
+    """dt um k Kalendermonate zurueck; der Tag wird aufs Monatsende gekappt
+    (31. Maerz -> 28. Februar), wie Stripe es bei Abrechnungstagen tut."""
+    m = dt.month - 1 - k
+    jahr, monat = dt.year + m // 12, m % 12 + 1
+    return dt.replace(year=jahr, month=monat, day=min(dt.day, calendar.monthrange(jahr, monat)[1]))
+
+
+def abo_monat(user: User) -> tuple[datetime, datetime] | None:
+    """Der laufende Abo-Monat [Start, Ende) - None ohne aktives Abo.
+
+    Rueckwaerts vom Abo-Ende in ganzen Monaten gezaehlt: beim Monatsabo ist
+    das genau die bezahlte Periode, beim Jahresabo einer seiner zwoelf
+    Monate. Verlaengert eine Rechnung das Abo, beginnt so von selbst der
+    naechste Monat - ohne dass dafuer ein Webhook Tokens buchen muss."""
+    if not plus_aktiv(user):
+        return None
+    jetzt = _utcnow_naiv()
+    k = 1
+    while _monate_zurueck(user.abo_bis, k) > jetzt and k < 400:
+        k += 1
+    return _monate_zurueck(user.abo_bis, k), _monate_zurueck(user.abo_bis, k - 1)
+
+
+def _marke(start: datetime) -> str:
+    return start.strftime("%Y-%m-%dT%H:%M")
+
+
+def abo_tokens(user: User) -> int:
+    """Abo-Tokens, die gerade zur Verfuegung stehen (rein lesend): in einem
+    neuen Abo-Monat die volle Monatsmenge, sonst der Rest dieses Monats."""
+    monat = abo_monat(user)
+    if monat is None:
+        return 0
+    if user.abo_periode != _marke(monat[0]):
+        return settings.plus_tokens_monat
+    return max(user.abo_tokens or 0, 0)
 
 
 def _effective_free_used(user: User) -> int:
@@ -116,7 +158,7 @@ def can_use_ki(db: Session, user: User, exercise_id: int | None = None) -> bool:
     """Darf dieses Konto gerade eine KI-Leistung ausloesen? (rein lesend)"""
     s = stufe(db, user, exercise_id)
     if s == "plus":
-        return user.token_balance > 0
+        return abo_tokens(user) + user.token_balance > 0
     return s != "gesperrt"
 
 
@@ -135,8 +177,8 @@ def sperre(db: Session, user: User, lang: str, exercise_id: int | None = None) -
     grund = sperr_grund(db, user, exercise_id)
     if grund == "plus_leer":
         text = i18n.t(lang,
-                      "Deine Tokens sind aufgebraucht. Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.",
-                      "Your tokens are used up. Top up a token package – or wait for your subscription's next credit.")
+                      "Deine Tokens sind aufgebraucht. Lad ein Token-Paket nach – oder warte auf den nächsten Abo-Monat.",
+                      "Your tokens are used up. Top up a token package – or wait for your next subscription month.")
     elif grund == "trial":
         text = i18n.t(lang,
                       f"Deine {settings.trial_tasks} Probe-Aufgaben sind aufgebraucht. Mit {settings.plus_name} übst du weiter – so viel du willst.",
@@ -155,12 +197,14 @@ def quota_state(db: Session, user: User) -> dict:
     s = stufe(db, user)
     t_used = trial_used(db, user)
     t_left = max(settings.trial_tasks - t_used, 0)
+    abo = abo_tokens(user)
+    monat_neu = abo_monat(user)
     if s == "school":
         remaining, percent = 10**9, 0
     elif s == "plus":
-        # Anzeige: wie viel von einer Monatsgutschrift ist noch da? Mehr als
-        # eine (angesammelt oder nachgekauft) zaehlt als «voll».
-        remaining = user.token_balance
+        # Anzeige: wie viel von einer Monatsmenge ist noch da (Abo + gekauft)?
+        # Mehr als eine (nachgekauft) zaehlt als «voll».
+        remaining = abo + user.token_balance
         monat = settings.plus_tokens_monat
         percent = 0 if not monat or remaining >= monat else min(int(round((1 - remaining / monat) * 100)), 100)
     elif s == "trial":
@@ -196,6 +240,10 @@ def quota_state(db: Session, user: User) -> dict:
         "abo_bis": user.abo_bis.isoformat() if user.abo_bis else None,
         "abo_gekuendigt": bool(user.abo_gekuendigt),
         "abo_intervall": user.abo_intervall,
+        # Zwei Toepfe: Abo-Tokens verfallen am Ende des Abo-Monats, gekaufte
+        # (token_balance) nie. abo_neu = wann der naechste Abo-Monat beginnt.
+        "abo_tokens": abo,
+        "abo_neu": monat_neu[1].isoformat() if monat_neu else None,
     }
 
 
@@ -212,9 +260,10 @@ def blocked_unverified(user: User) -> bool:
 def charge(db: Session, user_id: int, tokens: int, vom_guthaben: bool = True) -> None:
     """Bucht ``tokens`` ab.
 
-    Mit Kniff Plus: der Monatszaehler steigt immer (Anzeige), das Guthaben
-    wird nur bei vom_guthaben abgebucht (Stufen "plus" und "guthaben"; die
-    Probe ist gratis). Ohne Schalter: erst Gratis-Kontingent, Rest vom Guthaben.
+    Mit Kniff Plus: der Monatszaehler steigt immer (Anzeige), abgebucht wird
+    nur bei vom_guthaben (Stufen "plus" und "guthaben"; die Probe ist
+    gratis) - mit aktivem Abo zuerst von den Abo-Tokens, dann vom gekauften
+    Guthaben. Ohne Schalter: erst Gratis-Kontingent, Rest vom Guthaben.
 
     Alles in bedingten UPDATEs (alle Ausdruecke lesen die alten Zeilenwerte)
     – kein Doppel-Spend-Fenster bei parallelen Requests, laeuft auf SQLite
@@ -234,19 +283,32 @@ def charge(db: Session, user_id: int, tokens: int, vom_guthaben: bool = True) ->
         .where((User.free_month.is_(None)) | (User.free_month != cur))
         .values(free_used_tokens=0, free_month=cur)
     )
-    guthaben_neu = case(
-        (User.token_balance - tokens > 0, User.token_balance - tokens),
-        else_=0,
-    )
     if settings.abo_enabled:
-        db.execute(
-            update(User)
-            .where(User.id == user_id)
-            .values(
-                free_used_tokens=User.free_used_tokens + tokens,
-                token_balance=guthaben_neu if vom_guthaben else User.token_balance,
+        user = db.get(User, user_id)
+        monat = abo_monat(user) if (user is not None and vom_guthaben) else None
+        if monat is not None:
+            # (A') Neuer Abo-Monat: frische Monatsmenge, der Rest verfaellt.
+            # Idempotent wie (A) - nur die erste Buchung des Monats trifft.
+            marke = _marke(monat[0])
+            db.execute(
+                update(User)
+                .where(User.id == user_id)
+                .where((User.abo_periode.is_(None)) | (User.abo_periode != marke))
+                .values(abo_tokens=settings.plus_tokens_monat, abo_periode=marke)
             )
-        )
+        # (B') Zuerst vom Abo, der Rest vom gekauften Guthaben (Boden je 0).
+        abo_teil = case(
+            (User.abo_tokens >= tokens, tokens),
+            (User.abo_tokens > 0, User.abo_tokens),
+            else_=0,
+        ) if monat is not None else 0
+        rest = tokens - abo_teil
+        werte = {"free_used_tokens": User.free_used_tokens + tokens}
+        if monat is not None:
+            werte["abo_tokens"] = case((User.abo_tokens - tokens > 0, User.abo_tokens - tokens), else_=0)
+        if vom_guthaben:
+            werte["token_balance"] = case((User.token_balance - rest > 0, User.token_balance - rest), else_=0)
+        db.execute(update(User).where(User.id == user_id).values(**werte))
         return
     # (B) Atomarer Split: Gratis-Anteil zuerst, Rest vom Guthaben (Boden 0).
     free_total = settings.free_monthly_tokens
