@@ -101,6 +101,45 @@ def _stripe(method: str, path: str, data: dict | None = None) -> dict:
     return resp.json()
 
 
+def abo_vor_loeschung_beenden(user: User) -> None:
+    """Laeuft auf dem Konto ein Abo, das sich noch verlaengern wuerde, wird es
+    bei Stripe SOFORT beendet - bevor das Konto geloescht wird.
+
+    Sonst bucht Stripe Monat fuer Monat weiter ab, und das Konto, ueber das
+    man kuendigen koennte, gibt es nicht mehr. Klappt das Beenden nicht,
+    bricht die Loeschung ab (HTTPException): lieber ein Konto zu viel als
+    Abbuchungen ohne Konto. Ein gekuendigtes Abo verlaengert sich nicht mehr
+    und braucht nichts; kennt Stripe das Abo nicht (404), ist nichts offen."""
+    if not user.stripe_subscription_id or not quota.plus_aktiv(user) or user.abo_gekuendigt:
+        return
+    lang = i18n.lang_of(user)
+    fehler = i18n.t(lang,
+                    "Dein Abo konnte gerade nicht beendet werden. Damit nichts weiter abgebucht wird, bleibt das Konto bestehen – versuch es in ein paar Minuten nochmal.",
+                    "Your subscription could not be ended right now. So that nothing keeps being charged, the account stays – please try again in a few minutes.")
+    sid = user.stripe_subscription_id
+    try:
+        if not settings.payments_enabled:
+            raise RuntimeError("Zahlung nicht konfiguriert")
+        resp = httpx.request(
+            "DELETE", f"https://api.stripe.com/v1/subscriptions/{sid}",
+            auth=(settings.stripe_secret_key, ""),
+            headers={"Stripe-Version": settings.stripe_api_version},
+            timeout=20,
+        )
+    except (httpx.HTTPError, RuntimeError) as e:
+        log.error("Abo %s vor Kontoloeschung nicht beendet: %s", sid, e)
+        alert.notify("zahlung", f"Kontoloeschung abgebrochen: Abo {sid} liess sich nicht beenden ({e}).", key=sid)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, fehler)
+    if resp.status_code == 404:
+        log.warning("Abo %s bei Stripe unbekannt – Kontoloeschung laeuft weiter", sid)
+        return
+    if resp.status_code != 200:
+        log.error("Abo %s vor Kontoloeschung nicht beendet: HTTP %s – %s", sid, resp.status_code, resp.text[:400])
+        alert.notify("zahlung", f"Kontoloeschung abgebrochen: Abo {sid} liess sich nicht beenden (HTTP {resp.status_code}).", key=sid)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, fehler)
+    log.info("Abo %s vor Kontoloeschung beendet (Nutzer %s)", sid, user.id)
+
+
 def _utcnow_naiv() -> datetime:
     return datetime.now(timezone.utc).replace(tzinfo=None)
 

@@ -486,8 +486,8 @@ export function DeleteAccount() {
   async function doDelete() {
     const ja = await dialog.bestaetigen({
       titel: t("Konto endgültig löschen?", "Delete your account for good?"),
-      text: t("Aufgaben, Chats und dein Token-Guthaben sind danach unwiderruflich weg. Das lässt sich nicht rückgängig machen.",
-              "Tasks, chats and your token balance will be gone for good. This cannot be undone."),
+      text: t("Aufgaben, Chats und dein Token-Guthaben sind danach unwiderruflich weg. Ein laufendes Abo wird dabei sofort beendet, danach wird nichts mehr abgebucht. Das lässt sich nicht rückgängig machen.",
+              "Tasks, chats and your token balance will be gone for good. A running subscription is ended right away, nothing is charged afterwards. This cannot be undone."),
       bestaetigen: t("Endgültig löschen", "Delete permanently"),
       gefahr: true,
     });
@@ -508,8 +508,8 @@ export function DeleteAccount() {
     <div style={{ border: "1px solid #f2c9c0", background: "#fdf6f4", borderRadius: 14, padding: 16, marginTop: 24 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: "#b3492f", marginBottom: 4 }}>{t("Konto löschen", "Delete account")}</div>
       <div style={{ fontSize: 12.5, color: "#6b7280", lineHeight: 1.55, marginBottom: 12 }}>
-        {t("Löscht dein Konto mit allen Aufgaben, Chats, Bildern und deinem Token-Guthaben – endgültig. Zahlungsbelege bleiben beim Zahlungsanbieter (gesetzliche Aufbewahrung).",
-           "Deletes your account with all tasks, chats, images and your token balance – permanently. Payment records remain with the payment provider (legal retention).")}
+        {t("Löscht dein Konto mit allen Aufgaben, Chats, Bildern und deinem Token-Guthaben – endgültig. Ein laufendes Abo wird dabei sofort beendet. Zahlungsbelege bleiben beim Zahlungsanbieter (gesetzliche Aufbewahrung).",
+           "Deletes your account with all tasks, chats, images and your token balance – permanently. A running subscription is ended right away. Payment records remain with the payment provider (legal retention).")}
       </div>
       {!open ? (
         <button onClick={() => setOpen(true)} style={{ border: "1px solid #e5b0a4", background: "#fff", color: "#b3492f", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
