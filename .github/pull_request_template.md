@@ -18,10 +18,22 @@ Geprüft:
 
 ## Vor dem Merge
 
-- [ ] Alle Tests grün (`backend-tests` und `frontend-build` unten auf dieser Seite)
+- [ ] Alle Tests grün (`backend-tests`, `backend-postgres`, `frontend-build`, `e2e` unten auf dieser Seite)
 - [ ] In der Vorschau angeschaut — oder begründet, warum nicht nötig
 - [ ] Keine Geheimnisse im Diff (keine Schlüssel, keine `.env`, keine `runtime-env.json`)
 - [ ] Nur **ein** Thema in diesem Pull Request
+
+## Handarbeit nach dem Merge
+
+<!-- Alles, was NICHT im Code steckt und von Hand gemacht werden muss, damit
+     die Änderung wirkt – mit genauem Ort. Zum Beispiel: «Stripe → Webhook:
+     Ereignis charge.refunded ergänzen», «GitHub-Secret X anlegen»,
+     «Vercel → Environment Variables: Y setzen», «DNS-Eintrag Z bei
+     Squarespace». Wenn nichts: «keine».
+     Was hier steht, gehört danach auch in den Betriebs-Check
+     (backend/scripts/betriebs_check.py), damit es nicht vergessen geht. -->
+
+- keine
 
 ## Wenn es live schiefgeht
 
