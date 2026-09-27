@@ -135,10 +135,17 @@ Produktion angelegt. Die 17 Startaufgaben der Bibliothek liegen in der
 Produktion. Launch-Checkliste des Betreibers:
 https://claude.ai/code/artifact/67bdea5a-096e-439f-83f6-067727e5424b
 
-* ~~Die wöchentliche Sicherung ist noch nie gelaufen~~ – **erledigt 7.9.**:
-  Secrets `DATABASE_URL` (Session-Pooler der Produktion) und `BACKUP_PASSWORD`
-  angelegt, erster Lauf grün, Artefakt 3 MB, 90 Tage aufbewahrt. Läuft jetzt
-  jeden Sonntag 03:00 UTC. Vorher: neun Fehlläufe seit dem 19.07.
+* **Betriebs-Check** (`.github/workflows/betriebs-check.yml`, täglich und nach
+  jedem Deploy): prüft, was kein Test sieht – Repository privat, Secrets
+  gesetzt, Stripe-Webhook mit allen Ereignissen, Supabase-Mail-Links, DNS,
+  `/api/health`, letzter Deploy / Sicherung / Zahlungs-Abgleich grün. Rot =
+  Mail an den Betreiber. **Zustände hier nicht als «erledigt» eintragen, ohne
+  dass der Check sie belegt** – am 26.9. stellte sich heraus, dass
+  `BACKUP_PASSWORD` nie angelegt war, obwohl es hier so stand.
+* **Sicherung – korrigiert 26.9.:** `DATABASE_URL` ist gesetzt, `BACKUP_PASSWORD`
+  war es NIE. Die Läufe vom 7.9., 13.9. und 20.9. legten die Datenbank
+  unverschlüsselt als Artefakt ab – in einem öffentlichen Repository. Seit
+  der Ablauf das Passwort verlangt, schlägt er ohne es fehl.
 * ~~Kein Zweig-Schutz auf `main`~~ – **erledigt 7.9.**: Ruleset «main-schutz»
   (aktiv): Pull Request Pflicht, Status-Checks `backend-tests` und
   `frontend-build`, keine Force-Pushes, kein Löschen.

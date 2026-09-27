@@ -9,8 +9,9 @@ name: Zahlungs-Abgleich (Stripe ↔ Datenbank)
 # Benoetigte Secrets (Settings -> Secrets and variables -> Actions):
 #   STRIPE_ABGLEICH_KEY  eingeschraenkter LIVE-Schluessel (rk_live_…) aus
 #                        Stripe -> Entwickler -> API-Schluessel -> «Eingeschränkten
-#                        Schlüssel erstellen», nur LESEN fuer «Checkout Sessions»
-#                        und «Invoices». Kann nichts veraendern oder abbuchen.
+#                        Schlüssel erstellen», nur LESEN fuer «Checkout Sessions»,
+#                        «Invoices» und «Webhook Endpoints» (den letzten braucht der
+#                        Betriebs-Check). Kann nichts veraendern oder abbuchen.
 #   DATABASE_URL         schon vorhanden (Backup) – Session-Pooler der Produktion
 
 on:
