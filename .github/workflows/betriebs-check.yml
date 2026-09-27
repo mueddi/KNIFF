@@ -1,0 +1,59 @@
+name: Betriebs-Check
+
+# Prueft jeden Morgen und nach jedem Deploy alles RUND UM den Code:
+# Repository privat, Secrets gesetzt, Stripe-Webhook mit allen Ereignissen,
+# Supabase-Mail-Links auf kniff.app, DNS, Gesundheit der Seite, letzter
+# Deploy / letzte Sicherung / letzter Zahlungs-Abgleich gruen.
+# Ein Fehler macht den Lauf rot -> GitHub schickt eine Mail (Benachrichtigung
+# «failed workflows» muss im GitHub-Profil eingeschaltet sein).
+# Der Bericht steht in der Zusammenfassung des Laufs. Logik und Hintergrund:
+# backend/scripts/betriebs_check.py
+#
+# Secrets werden nur als «gesetzt ja/nein» weitergereicht – ausser den
+# beiden Lese-Schluesseln fuer Stripe und Supabase, die der Check braucht.
+
+on:
+  schedule:
+    - cron: "47 4 * * *" # taeglich 04:47 UTC (06:47 Schweizer Sommerzeit)
+  workflow_run:
+    workflows: ["Deploy (Vercel)"]
+    types: [completed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: betriebs-check
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.14"
+
+      - name: Abhängigkeiten
+        run: pip install "httpx>=0.27"
+
+      - name: Prüfen
+        working-directory: backend
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          STRIPE_ABGLEICH_KEY: ${{ secrets.STRIPE_ABGLEICH_KEY }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+          HAT_DATABASE_URL: ${{ secrets.DATABASE_URL != '' }}
+          HAT_BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD != '' }}
+          HAT_VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN != '' }}
+          HAT_RUNTIME_ENV_JSON: ${{ secrets.RUNTIME_ENV_JSON != '' }}
+          HAT_STRIPE_ABGLEICH_KEY: ${{ secrets.STRIPE_ABGLEICH_KEY != '' }}
+          HAT_SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN != '' }}
+          HAT_VERCEL_AUTOMATION_BYPASS_SECRET: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET != '' }}
+          HAT_STRIPE_TEST_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY != '' }}
+        run: python scripts/betriebs_check.py
