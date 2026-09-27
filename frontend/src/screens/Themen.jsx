@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useShell } from "../components/AppShell.jsx";
@@ -49,12 +49,25 @@ function TopicGrid() {
 
   const topics = imArchiv ? archiv : (shell.topics || []);
 
+  const [anlegen, setAnlegen] = useState(false);
+  // Ref statt nur Zustand: Enter und Klick im selben Augenblick sehen beide
+  // noch den alten Zustand – der Ref sperrt sofort.
+  const anlegenLaeuft = useRef(false);
   async function createTopic() {
-    if (!name.trim()) return;
-    await api.post("/api/topics", { name: name.trim(), color });
-    setName("");
-    setAdding(false);
-    shell.reloadTopics?.();
+    if (!name.trim() || anlegenLaeuft.current) return; // Enter + Klick legte das Thema doppelt an
+    anlegenLaeuft.current = true;
+    setAnlegen(true);
+    try {
+      await api.post("/api/topics", { name: name.trim(), color });
+      setName("");
+      setAdding(false);
+      shell.reloadTopics?.();
+    } catch (e) {
+      melden(e);
+    } finally {
+      anlegenLaeuft.current = false;
+      setAnlegen(false);
+    }
   }
 
   // Geht etwas schief, muss das Kind es SEHEN. Ohne diesen Fang blieb der
@@ -168,7 +181,7 @@ function TopicGrid() {
                 />
               ))}
             </div>
-            <button onClick={createTopic} className="btn-primary" style={{ padding: "9px 16px", borderRadius: 10, fontSize: 13, border: "none" }}>{t("Anlegen", "Create")}</button>
+            <button onClick={createTopic} disabled={anlegen} className="btn-primary" style={{ padding: "9px 16px", borderRadius: 10, fontSize: 13, border: "none", opacity: anlegen ? 0.6 : 1 }}>{t("Anlegen", "Create")}</button>
           </div>
         )}
       </div>
@@ -231,15 +244,21 @@ function Lernziele({ topicId, start, onSaved }) {
   const [text, setText] = useState(start);
   const [offen, setOffen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [fehler, setFehler] = useState("");
   // Wechselt das Thema (oder kommen die Themen erst nach), Feld nachziehen
   useEffect(() => { setText(start); }, [start, topicId]);
 
   async function speichern() {
     setBusy(true);
+    setFehler("");
     try {
       await api.patch(`/api/topics/${topicId}`, { learning_goals: text });
       onSaved?.();
       setOffen(false);
+    } catch (e) {
+      // Vorher verschwand die Eingabe nicht, aber es kam auch kein Wort – das
+      // Kind dachte, es sei gespeichert.
+      setFehler(e?.message || t("Speichern hat nicht geklappt – versuch es nochmal.", "Saving didn't work – please try again."));
     } finally {
       setBusy(false);
     }
@@ -261,6 +280,7 @@ function Lernziele({ topicId, start, onSaved }) {
                     placeholder={t("Was sollst du am Ende können? Ein Ziel pro Zeile, z.B.:\nBrüche kürzen\nBrüche addieren",
                                    "What should you be able to do? One goal per line, e.g.:\nreduce fractions\nadd fractions")}
                     style={{ width: "100%", boxSizing: "border-box", border: "1px solid #d2d4dd", borderRadius: 10, padding: "10px 12px", fontSize: 14, outline: "none", resize: "vertical", fontFamily: "inherit", lineHeight: 1.5 }} />
+          {fehler && <div style={{ fontSize: 12.5, color: "#c0392b", margin: "8px 0" }}>{fehler}</div>}
           <button onClick={speichern} disabled={busy} className="btn-primary"
                   style={{ marginTop: 8, padding: "9px 16px", borderRadius: 10, fontSize: 13, border: "none", opacity: busy ? 0.6 : 1 }}>
             {t("Speichern", "Save")}

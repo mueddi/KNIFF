@@ -315,13 +315,16 @@ export function Agb() {
                 Kniff is an AI-powered maths tutor for middle school, secondary school
                 and high school (Gymnasium). Every account can practise its first {probe}{" "}
                 tasks free of charge (trial, once per account, no payment details).
-                After that, {plusName} is required: one subscription per child. Each
-                paid subscription invoice credits {tokensMonat} tokens to the account
-                (yearly subscription: twelve months at once); 1 token = 1 Swiss centime
-                (Rappen) of AI computation, a task usually takes 10 to 20 tokens. Every
-                tutor response deducts tokens from the balance. Unused tokens carry over
-                and do not expire. When the balance is empty, practising pauses until
-                the next credit or until a token package is bought (section 2). Photo,
+                After that, {plusName} is required: one subscription per child. While the
+                subscription runs, the account receives {tokensMonat} subscription tokens
+                at the start of every subscription month – with the yearly subscription,
+                too, month by month. Subscription tokens not used by the end of a
+                subscription month expire without replacement and are not carried over
+                to the next month. 1 token = 1 Swiss centime (Rappen) of AI computation,
+                a task usually takes 10 to 20 tokens. Every tutor response deducts
+                subscription tokens first, then purchased tokens (section 2); purchased
+                tokens do not expire. When both are used up, practising pauses until the
+                next subscription month or until a token package is bought. Photo,
                 pen, task collection and mock exams are included. Token balances bought
                 earlier remain usable and are deducted as before.
               </P>
@@ -436,13 +439,15 @@ export function Agb() {
                 Kniff ist ein KI-gestützter Mathe-Lern-Tutor für Mittelstufe, Oberstufe
                 und Gymnasium. Jedes Konto kann die ersten {probe} Aufgaben gratis üben
                 (Probe, einmalig pro Konto, ohne Zahlungsangaben). Danach braucht es{" "}
-                {plusName}: ein Abo pro Kind. Jede bezahlte Abo-Rechnung schreibt dem
-                Konto {tokensMonat} Tokens gut (Jahresabo: zwölf Monate auf einmal);
-                1 Token entspricht 1 Rappen KI-Leistung, eine Aufgabe braucht meist 10 bis
-                20 Tokens. Jede Tutor-Antwort bucht Tokens vom Guthaben ab. Unverbrauchte
-                Tokens bleiben erhalten und verfallen nicht. Ist das Guthaben leer, pausiert
-                das Üben bis zur nächsten Gutschrift oder bis zum Kauf eines Token-Pakets
-                (Ziffer 2). Foto, Stift, Aufgabensammlung und Probeprüfungen sind
+                {plusName}: ein Abo pro Kind. Solange das Abo läuft, erhält das Konto zu
+                Beginn jedes Abo-Monats {tokensMonat} Abo-Tokens, beim Jahresabo ebenfalls
+                Monat für Monat. Abo-Tokens, die am Ende eines Abo-Monats nicht verbraucht
+                sind, verfallen ersatzlos und werden nicht in den nächsten Monat
+                übertragen. 1 Token entspricht 1 Rappen KI-Leistung, eine Aufgabe braucht
+                meist 10 bis 20 Tokens. Jede Tutor-Antwort bucht zuerst Abo-Tokens ab,
+                danach gekaufte Tokens (Ziffer 2); gekaufte Tokens verfallen nicht. Sind
+                beide aufgebraucht, pausiert das Üben bis zum nächsten Abo-Monat oder bis
+                zum Kauf eines Token-Pakets. Foto, Stift, Aufgabensammlung und Probeprüfungen sind
                 inbegriffen. Früher gekaufte Token-Guthaben bleiben nutzbar und werden wie
                 bisher abgebucht.
               </P>

@@ -221,7 +221,7 @@ function PreisePlus({ quota }) {
     }
   }
 
-  // Token-Paket nachladen – nur mit Abo; derselbe Topf, nichts verfaellt.
+  // Token-Paket nachladen – nur mit Abo; gekaufte Tokens verfallen nie.
   async function nachladen(paket) {
     setBusy(true);
     setNote(null);
@@ -313,7 +313,7 @@ function PreisePlus({ quota }) {
 
           <div style={{ display: "flex", flexDirection: "column", gap: 9, marginBottom: 18 }}>
             <Feature color="#8be0a4">{t(`${quota.plus_tokens_monat} Tokens im Monat – rund 35 bis 40 Aufgaben`, `${quota.plus_tokens_monat} tokens a month – around 35 to 40 tasks`)}</Feature>
-            <Feature color="#8be0a4">{t("Unverbrauchte Tokens bleiben · mehr gibt es als Paket dazu", "Unused tokens carry over · more available as a package")}</Feature>
+            <Feature color="#8be0a4">{t("Jeden Monat frisch · reicht es nicht, gibt es Tokens zum Nachladen", "Fresh every month · if it is not enough, top up tokens")}</Feature>
             <Feature color="#8be0a4">{t("Foto, Stift, Aufgabensammlung, Probeprüfungen", "Photo, pen, task collection, mock exams")}</Feature>
             <Feature color="#8be0a4">{t("Elternansicht inklusive", "Parent view included")}</Feature>
             <Feature color="#8be0a4">{t("Karte oder TWINT · läuft bis zum Ende der bezahlten Zeit", "Card or TWINT · runs until the end of the paid period")}</Feature>
@@ -356,11 +356,11 @@ function PreisePlus({ quota }) {
       <div style={{ ...karte, maxWidth: 920, margin: "22px auto 0" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", marginBottom: 12 }}>
           <div style={{ fontSize: 14, fontWeight: 700 }}>⚡ {t("Tokens nachladen", "Top up tokens")}</div>
-          {istPlus && <div style={{ fontSize: 12.5, color: "#6b7280" }}>{t(`Dein Guthaben: ${quota.token_balance} Tokens`, `Your balance: ${quota.token_balance} tokens`)}</div>}
+          {istPlus && <div style={{ fontSize: 12.5, color: "#6b7280" }}>{t(`Jetzt: ${quota.abo_tokens} Abo-Tokens · ${quota.token_balance} gekaufte`, `Now: ${quota.abo_tokens} subscription tokens · ${quota.token_balance} purchased`)}</div>}
         </div>
         <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.55, marginBottom: 14 }}>
           {istPlus
-            ? t("Reichen die Abo-Tokens einmal nicht: ein Paket landet sofort auf deinem Guthaben und verfällt nie.", "If the subscription tokens run out: a package lands on your balance right away and never expires.")
+            ? t("Reichen die Abo-Tokens einmal nicht: ein Paket ist sofort da und verfällt nie – anders als die Abo-Tokens, die jeden Monat neu kommen.", "If the subscription tokens run out: a package is there right away and never expires – unlike the subscription tokens, which renew every month.")
             : t(`Token-Pakete gibt es zusammen mit ${name} – als Nachschub, wenn die ${quota.plus_tokens_monat} Tokens im Monat einmal nicht reichen.`, `Token packages come with ${name} – as a top-up when the ${quota.plus_tokens_monat} tokens a month are not enough.`)}
         </div>
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))", gap: 10 }}>

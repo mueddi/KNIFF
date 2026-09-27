@@ -45,7 +45,15 @@ Zweig  →  Vercel baut automatisch eine Vorschau  →  er schaut sie an
   Deploy → Smoke-Test). `vercel.json` setzt `git.deploymentEnabled {"main":
   false}`, damit Vercel `main` nicht an den Tests vorbei deployt – genau das
   hat am 31.07. einen fünfminütigen Ausfall verursacht.
-* **In Vercel niemals «Promote to Production»** benutzen. Das umgeht die Tests.
+* **In Vercel niemals «Promote to Production»** von Hand benutzen. Das umgeht
+  die Tests. Freischalten macht nur der Ablauf selbst (Job `freischalten`).
+* **Gestufter Deploy**, sobald das GitHub-Secret `VERCEL_AUTOMATION_BYPASS_SECRET`
+  existiert: `deploy` baut mit `--skip-domain` (noch nicht auf kniff.app),
+  `smoke` prüft die neue Version unter ihrer eigenen Adresse (Schlüssel über
+  `~/.curlrc`), erst dann schaltet `freischalten` sie per `vercel promote`
+  frei und belegt, dass kniff.app dasselbe App-Paket liefert. Ein roter
+  Rauchtest lässt die alte Version live. Ohne das Secret: wie früher, sofort
+  live, danach Rauchtest.
 * **Vorschau-Umgebung** (Vercel → Environment Variables, Umgebung *Preview*):
   `JWT_SECRET` (ein **anderer** als in Produktion – gleicher Wert hiesse, ein
   Ausweis aus der Vorschau gälte auch live), `DATABASE_URL` auf das eigene
@@ -76,6 +84,12 @@ Drei Schichten, alle laufen im Pull Request und vor jedem Deploy (`ci.yml`):
   Anmeldung nur die Liste `OEFFENTLICH`, Admin nur für Admins, Müll nie 500,
   fremde Daten bleiben fremd. Eine neue öffentliche Schnittstelle muss dort
   bewusst eingetragen werden.
+* **Backend auf Postgres** (`backend-postgres`): dieselben Tests gegen eine
+  echte Postgres 17 wie in der Produktion (`TEST_DATABASE_URL`). Nur hier
+  zeigen sich verlorene Abbuchungen bei gleichzeitigen Anfragen
+  (`tests/test_gleichzeitig.py`) – SQLite sperrt die ganze Datei und
+  verdeckt sie. Lokal: Postgres 16 liegt im Container unter
+  `/usr/lib/postgresql/16/bin`.
 * **Browser** (`e2e`, `frontend/e2e/`): Chromium bedient die gebaute App mit
   Mock-Tutor und frischer SQLite-Datei. Jeder JS-Absturz, jedes
   `console.error`, jede 5xx-Antwort macht den Test rot. Neue Seite oder neuer

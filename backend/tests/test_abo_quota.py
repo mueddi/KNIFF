@@ -6,6 +6,7 @@ import pytest
 from app.config import settings
 from app.database import SessionLocal
 from app.models import User
+from app.services import quota as quota_mod
 from app.services.quota import charge, current_month, quota_state, stufe
 
 from .test_billing import _fresh, _user
@@ -86,27 +87,40 @@ def test_nach_der_probe_zahlt_altes_guthaben(client):
     assert _fresh("mia@test.ch").token_balance == 15
 
 
-def test_plus_zahlt_vom_guthaben_und_sperrt_bei_null(client):
-    """Das Abo ist kein Freifahrschein: es schreibt Tokens gut, und die werden
-    abgebucht. Leer heisst zu – mit dem Grund plus_leer, damit die Oberflaeche
-    den Nachkauf anbietet statt das Abo."""
+def test_plus_bucht_zuerst_abo_dann_gekauft_und_sperrt_bei_null(client):
+    """Das Abo ist kein Freifahrschein: jeder Abo-Monat bringt Abo-Tokens,
+    dazu kommt gekauftes Guthaben. Abgebucht wird zuerst vom Abo. Beide leer
+    heisst zu – mit dem Grund plus_leer, damit die Oberflaeche den Nachkauf
+    anbietet statt das Abo."""
+    monat = settings.plus_tokens_monat
     headers = register_pw(client, "mia@test.ch")
     _user("mia@test.ch", abo_bis=datetime.utcnow() + timedelta(days=20), abo_intervall="monat", token_balance=50)
     for _ in range(5):  # weit ueber die Probe hinaus
         assert _starten(client, headers, _aufgabe(client, headers)).status_code == 201
     q = _quota(client, headers)
-    assert q["stufe"] == "plus" and q["remaining"] == 50 and q["abo_intervall"] == "monat"
-    assert q["plus_tokens_monat"] == settings.plus_tokens_monat
+    assert q["stufe"] == "plus" and q["abo_intervall"] == "monat"
+    assert (q["abo_tokens"], q["token_balance"], q["remaining"]) == (monat, 50, monat + 50)
+    assert q["plus_tokens_monat"] == monat
     assert [p["key"] for p in q["pakete"]] == ["schnupper", "starter", "power"]
-    assert 0 < q["percent_used"] < 100  # 50 von 600 einer Monatsgutschrift uebrig
     naechste = _aufgabe(client, headers)  # solange noch Tokens da sind
-    # Plus bucht vom Guthaben ab und zaehlt den Monat mit
+    # Zuerst das Abo: das Gekaufte bleibt unberuehrt
     with SessionLocal() as db:
-        charge(db, _fresh("mia@test.ch").id, 50, vom_guthaben=True)
+        charge(db, _fresh("mia@test.ch").id, monat - 10, vom_guthaben=True)
         db.commit()
     u = _fresh("mia@test.ch")
-    assert (u.token_balance, u.free_used_tokens) == (0, 50)
-    # Leer: zu, mit Nachkauf-Grund, Abo bleibt die Stufe
+    assert (u.abo_tokens, u.token_balance) == (10, 50)
+    # Reicht das Abo nicht, zahlt der Rest vom Gekauften
+    with SessionLocal() as db:
+        charge(db, u.id, 30, vom_guthaben=True)
+        db.commit()
+    u = _fresh("mia@test.ch")
+    assert (u.abo_tokens, u.token_balance, u.free_used_tokens) == (0, 30, monat + 20)
+    q = _quota(client, headers)
+    assert (q["abo_tokens"], q["remaining"]) == (0, 30) and 0 < q["percent_used"] < 100
+    with SessionLocal() as db:
+        charge(db, u.id, 30, vom_guthaben=True)
+        db.commit()
+    # Beide leer: zu, mit Nachkauf-Grund, Abo bleibt die Stufe
     r = _starten(client, headers, naechste)
     assert r.status_code == 402
     assert r.headers["x-kniff-grund"] == "plus_leer"
@@ -114,9 +128,78 @@ def test_plus_zahlt_vom_guthaben_und_sperrt_bei_null(client):
     q = _quota(client, headers)
     assert q["stufe"] == "plus" and q["remaining"] == 0 and q["percent_used"] == 100
     assert client.post("/api/exercises", headers=headers, json={"text": "y=2"}).status_code == 402
-    # Angesammelt oder nachgekauft: mehr als eine Monatsgutschrift zaehlt als voll
-    _user("mia@test.ch", token_balance=settings.plus_tokens_monat + 300)
+    # Nachgekauft: mehr als eine Monatsmenge zaehlt als voll
+    _user("mia@test.ch", token_balance=monat + 300)
     assert _quota(client, headers)["percent_used"] == 0
+
+
+def _zeitreise(monkeypatch, tage):
+    """«Jetzt» fuer die Kontingent-Logik um tage verschieben."""
+    echt = quota_mod._utcnow_naiv
+    monkeypatch.setattr(quota_mod, "_utcnow_naiv", lambda: echt() + timedelta(days=tage))
+
+
+def test_abo_tokens_verfallen_gekaufte_bleiben(client, monkeypatch):
+    """Was vom Abo-Monat uebrig bleibt, verfaellt: der neue Monat bringt
+    wieder genau die Monatsmenge, nicht Rest + Monatsmenge. Gekauftes bleibt."""
+    monat = settings.plus_tokens_monat
+    headers = register_pw(client, "mia@test.ch")
+    _user("mia@test.ch", abo_bis=datetime.utcnow() + timedelta(days=20), abo_intervall="monat", token_balance=40)
+    with SessionLocal() as db:
+        charge(db, _fresh("mia@test.ch").id, 100, vom_guthaben=True)
+        db.commit()
+    assert _fresh("mia@test.ch").abo_tokens == monat - 100
+    # Zweite Buchung im selben Monat: kein neues Auffuellen
+    with SessionLocal() as db:
+        charge(db, _fresh("mia@test.ch").id, 10, vom_guthaben=True)
+        db.commit()
+    assert _quota(client, headers)["abo_tokens"] == monat - 110
+    # Die Rechnung verlaengert das Abo um einen Monat - und «jetzt» ist dort
+    alt_bis = _fresh("mia@test.ch").abo_bis
+    _user("mia@test.ch", abo_bis=quota_mod._monate_zurueck(alt_bis, -1))
+    _zeitreise(monkeypatch, 21)
+    q = _quota(client, headers)
+    assert (q["abo_tokens"], q["token_balance"], q["remaining"]) == (monat, 40, monat + 40)
+    with SessionLocal() as db:
+        charge(db, _fresh("mia@test.ch").id, 5, vom_guthaben=True)
+        db.commit()
+    u = _fresh("mia@test.ch")
+    assert (u.abo_tokens, u.token_balance) == (monat - 5, 40)
+
+
+def test_jahresabo_bekommt_jeden_monat_die_monatsmenge(client, monkeypatch):
+    """Jahresabo: nicht zwoelf Monate auf einmal, sondern jeden Monat frisch."""
+    monat = settings.plus_tokens_monat
+    headers = register_pw(client, "mia@test.ch")
+    _user("mia@test.ch", abo_bis=datetime.utcnow() + timedelta(days=300), abo_intervall="jahr")
+    q = _quota(client, headers)
+    assert (q["abo_tokens"], q["token_balance"]) == (monat, 0)
+    naechster = datetime.fromisoformat(q["abo_neu"])
+    assert datetime.utcnow() < naechster <= datetime.utcnow() + timedelta(days=31)
+    with SessionLocal() as db:
+        charge(db, _fresh("mia@test.ch").id, monat, vom_guthaben=True)
+        db.commit()
+    assert _quota(client, headers)["remaining"] == 0
+    _zeitreise(monkeypatch, 31)
+    assert _quota(client, headers)["abo_tokens"] == monat
+    _zeitreise(monkeypatch, 31)  # nichts verbraucht: trotzdem nur eine Monatsmenge
+    assert _quota(client, headers)["abo_tokens"] == monat
+
+
+def test_abo_monat_rechnet_mit_dem_monatsende():
+    assert quota_mod._monate_zurueck(datetime(2027, 3, 31, 9, 15), 1) == datetime(2027, 2, 28, 9, 15)
+    assert quota_mod._monate_zurueck(datetime(2028, 3, 31), 1) == datetime(2028, 2, 29)
+    assert quota_mod._monate_zurueck(datetime(2027, 1, 15), 1) == datetime(2026, 12, 15)
+    assert quota_mod._monate_zurueck(datetime(2027, 1, 15), -1) == datetime(2027, 2, 15)
+    assert quota_mod._monate_zurueck(datetime(2027, 1, 15), 13) == datetime(2025, 12, 15)
+
+
+def test_abgelaufenes_abo_laesst_gekauftes_stehen(client):
+    headers = register_pw(client, "mia@test.ch")
+    _user("mia@test.ch", abo_bis=datetime.utcnow() - timedelta(hours=1), abo_tokens=300,
+          abo_periode="2000-01-01T00:00", token_balance=40)
+    q = _quota(client, headers)
+    assert (q["abo_tokens"], q["token_balance"], q["abo_neu"]) == (0, 40, None)
 
 
 def test_abgelaufenes_abo_ist_kein_plus(client):

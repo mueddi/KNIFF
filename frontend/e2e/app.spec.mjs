@@ -12,7 +12,8 @@ test("Registrieren ueber das Formular, Aufgabe anlegen, im Chat antworten", asyn
   await page.getByRole("checkbox").check();
   await page.getByRole("button", { name: "Konto erstellen" }).click();
   await expect(page).toHaveURL(/\/app\/lernen/);
-  await expect(page.getByText(/10 von 10 Gratis-Aufgaben|Noch 10 von 10/)).toBeVisible();
+  // steht in der Seitenleiste und auf der Karte des Startbildschirms
+  await expect(page.getByText(/10 von 10 Gratis-Aufgaben|Noch 10 von 10/).first()).toBeVisible();
 
   await page.getByRole("button", { name: "+ Neue Aufgabe" }).or(page.getByText("+ Neue Aufgabe")).first().click();
   await page.getByPlaceholder("z.B. Löse nach x auf: 3x + 5 = 20").fill("Löse nach x auf: 3x + 5 = 20");

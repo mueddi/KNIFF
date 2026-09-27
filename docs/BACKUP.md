@@ -44,6 +44,16 @@ GitHub → Settings → Secrets and variables → Actions → «New repository s
 4. App testen: anmelden, eine Aufgabe öffnen, Admin → Nutzer prüfen
    (Guthaben da?).
 
+## Automatische Rückspiel-Probe (jede Woche)
+
+Direkt nach jeder Sicherung spielt der Job **«probe»** im selben Lauf genau
+diese Sicherung in eine leere Postgres-17-Datenbank zurück (nur das Schema
+`public` mit den App-Tabellen) und zählt nach: `users`, `payments`,
+`exercises` und `messages` müssen mindestens so viele Zeilen haben wie kurz
+vor der Sicherung in der Produktion. Ist der Lauf grün, ist bewiesen, dass
+sich die Sicherung zurückspielen lässt – nicht nur, dass es sie gibt. Ist
+«probe» rot, ist das Backup dieser Woche unbrauchbar: Protokoll ansehen.
+
 ## Probelauf (empfohlen nach der Einrichtung)
 
 Einmal «Run workflow» klicken und prüfen, dass der Lauf grün ist und ein

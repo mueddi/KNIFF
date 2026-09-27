@@ -80,12 +80,20 @@ export default function Pruefung() {
   }
 
   async function uebernehmen(item) {
+    if (busy) return;
+    setBusy(true);
+    setFehler("");
     try {
       const { exercise_id } = await api.post(`/api/exams/${examId}/items/${item.id}/uebernehmen`);
       const st = await api.post(`/api/exercises/${exercise_id}/attempts`, {});
       shell.reloadTopics?.();
       nav(`/app/lernen/${st.attempt.id}`);
-    } catch { /* Knopf bleibt, das Kind kann es nochmal versuchen */ }
+    } catch (e) {
+      // Vorher verschluckt: der Knopf tat einfach nichts. Jetzt steht da, warum.
+      setFehler(e?.message || t("Das hat nicht geklappt – versuch es nochmal.", "That didn't work – please try again."));
+    } finally {
+      setBusy(false);
+    }
   }
 
   if (ladefehler) {
@@ -216,6 +224,7 @@ export default function Pruefung() {
           })}
         </div>
 
+        {fertig && fehler && <div style={{ marginTop: 14, fontSize: 13, color: "#c0392b" }}>{fehler}</div>}
         {!fertig && (
           <>
             {fehler && <div style={{ marginTop: 14, fontSize: 13, color: "#c0392b" }}>{fehler}</div>}

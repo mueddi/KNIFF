@@ -87,6 +87,11 @@ class User(Base):
     abo_bis: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     abo_gekuendigt: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     abo_intervall: Mapped[str | None] = mapped_column(String(8), nullable=True)  # "monat" | "jahr"
+    # Abo-Tokens des laufenden Abo-Monats - getrennt von token_balance (gekauft,
+    # verfaellt nie). Beginnt ein neuer Abo-Monat (abo_periode = dessen Start,
+    # "YYYY-MM-DDTHH:MM"), gibt es frische plus_tokens_monat; der Rest verfaellt.
+    abo_tokens: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    abo_periode: Mapped[str | None] = mapped_column(String(16), nullable=True)
 
     # Privacy-Schalter: gibt der/die Schueler:in Aggregate fuer Eltern frei?
     share_with_parents: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)

@@ -230,9 +230,12 @@ function PlusBox({ child, onChanged }) {
               ? t(`Gekündigt – aktiv bis ${datum}, danach keine Verlängerung.`, `Cancelled – active until ${datum}, no renewal afterwards.`)
               : t(`${q.abo_intervall === "jahr" ? "Jahresabo" : "Monatsabo"} · verlängert sich am ${datum} · jederzeit kündbar`, `${q.abo_intervall === "jahr" ? "Yearly" : "Monthly"} plan · renews on ${datum} · cancel anytime`)}
           </div>
-          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8, color: q.token_balance > 0 ? "#1a1c22" : "#d9573a" }}>
-            ⚡ {t(`Guthaben: ${q.token_balance} Tokens`, `Balance: ${q.token_balance} tokens`)}
-            <span style={{ fontWeight: 400, color: "#6b7280" }}> · {t(`${q.plus_tokens_monat} pro Monat inklusive, unverbrauchte bleiben`, `${q.plus_tokens_monat} per month included, unused ones carry over`)}</span>
+          <div style={{ fontSize: 13, fontWeight: 700, marginTop: 8, color: q.abo_tokens + q.token_balance > 0 ? "#1a1c22" : "#d9573a" }}>
+            ✨ {t(`${q.abo_tokens} von ${q.plus_tokens_monat} Abo-Tokens diesen Monat`, `${q.abo_tokens} of ${q.plus_tokens_monat} subscription tokens this month`)}
+            {q.token_balance > 0 && <span> · ⚡ {t(`${q.token_balance} gekaufte`, `${q.token_balance} purchased`)}</span>}
+          </div>
+          <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
+            {t("Abo-Tokens kommen jeden Monat neu, der Rest verfällt. Nachgeladene Tokens verfallen nie.", "Subscription tokens renew every month, the rest expires. Topped-up tokens never expire.")}
           </div>
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
             {(q.pakete || []).map((p) => (
@@ -261,7 +264,7 @@ function PlusBox({ child, onChanged }) {
       <div style={{ flex: "1 1 260px" }}>
         <div style={{ fontSize: 12.5, color: "#c9ccf6" }}>{stand}</div>
         <div style={{ fontSize: 15, fontWeight: 700, marginTop: 4 }}>
-          {t(`${name} für ${kind}: ${q.plus_tokens_monat} Tokens im Monat, unverbrauchte bleiben.`, `${name} for ${kind}: ${q.plus_tokens_monat} tokens a month, unused ones carry over.`)}
+          {t(`${name} für ${kind}: ${q.plus_tokens_monat} Tokens jeden Monat, rund 35 bis 40 Aufgaben.`, `${name} for ${kind}: ${q.plus_tokens_monat} tokens every month, around 35 to 40 tasks.`)}
         </div>
         <div style={{ fontSize: 12, color: "#9aa0ab", marginTop: 3 }}>{t("Karte oder TWINT · jederzeit kündbar · die Rechnung geht an dich", "Card or TWINT · cancel anytime · the invoice goes to you")}</div>
         {err && <div style={{ fontSize: 12.5, color: "#f7b2a3", marginTop: 4 }}>{err}</div>}

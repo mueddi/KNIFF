@@ -252,6 +252,38 @@ function Confetti() {
   );
 }
 
+function chf(rappen) {
+  const v = (rappen / 100).toFixed(2);
+  return v.endsWith(".00") ? v.slice(0, -3) + ".–" : v;
+}
+
+// Waehrend der Probe: sagen, wie es danach weitergeht – bevor sie zu Ende ist.
+function PlusHinweis({ quota, onOpen }) {
+  const { t } = useLang();
+  if (!quota?.abo_enabled || quota.unlimited || !["trial", "gesperrt"].includes(quota.stufe)) return null;
+  const name = quota.plus_name || "Kniff Plus";
+  const leer = quota.stufe === "gesperrt";
+  return (
+    <div style={{ marginTop: 26, textAlign: "left", background: "#fff", border: `1px solid ${leer ? "#f0e2c4" : "#dfe1fb"}`, borderRadius: 16, padding: "16px 18px" }}>
+      <div style={{ fontSize: 14, fontWeight: 800, marginBottom: 4 }}>
+        {leer
+          ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
+          : t(`🎁 Noch ${quota.trial_left} von ${quota.trial_tasks} Gratis-Aufgaben`, `🎁 ${quota.trial_left} of ${quota.trial_tasks} free tasks left`)}
+      </div>
+      <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.55, marginBottom: 12 }}>
+        {t(`${leer ? "Mit" : "Danach geht es mit"} ${name} ${leer ? "übst du weiter" : "weiter"}: ${quota.plus_tokens_monat} Tokens jeden Monat (rund 35 bis 40 Aufgaben) für CHF ${chf(quota.preise.monat)} im Monat oder ${chf(quota.preise.jahr)} im Jahr. Jederzeit kündbar – deine Eltern können es auch für dich abschliessen.`,
+           `${leer ? "With" : "After that you continue with"} ${name}${leer ? " you keep practising" : ""}: ${quota.plus_tokens_monat} tokens every month (around 35 to 40 tasks) for CHF ${chf(quota.preise.monat)} a month or ${chf(quota.preise.jahr)} a year. Cancel anytime – your parents can also subscribe for you.`)}
+      </div>
+      <button onClick={onOpen} className={leer ? "btn-primary" : undefined}
+        style={leer
+          ? { border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }
+          : { border: "1px solid #dfe1fb", background: "#eef0fe", color: "#4f46e5", borderRadius: 10, padding: "9px 14px", fontSize: 13, fontWeight: 700, cursor: "pointer" }}>
+        {leer ? t(`${name} aktivieren →`, `Activate ${name} →`) : t(`${name} ansehen →`, `See ${name} →`)}
+      </button>
+    </div>
+  );
+}
+
 export default function Lernen() {
   const { attemptId } = useParams();
   const nav = useNavigate();
@@ -279,6 +311,15 @@ export default function Lernen() {
   // (Race beim Aufgabenwechsel waehrend des Streamens) werden verworfen.
   const reqToken = useRef(0);
   const abortRef = useRef(null);
+  const konfettiTimer = useRef(null);
+  // Chat verlassen (andere Seite): laufende Antwort abbrechen und alle
+  // spaeter eintreffenden Teile verwerfen. Vorher lief der Stream weiter und
+  // schrieb in einen Bildschirm, den es nicht mehr gab.
+  useEffect(() => () => {
+    reqToken.current += 1;
+    abortRef.current?.abort();
+    clearTimeout(konfettiTimer.current);
+  }, []);
 
   const nearBottom = (rand = 120) => {
     const el = chatRef.current;
@@ -465,7 +506,7 @@ export default function Lernen() {
         // frisch gelöst -> Konfetti 🎉 (ausser reduced motion)
         if (fresh?.attempt?.solved && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
           setCelebrate(true);
-          setTimeout(() => setCelebrate(false), 3200);
+          clearTimeout(konfettiTimer.current); konfettiTimer.current = setTimeout(() => setCelebrate(false), 3200);
         }
       }
     } catch (e) {
@@ -545,6 +586,7 @@ export default function Lernen() {
             <button onClick={() => shell.openNewTask()} className="btn-primary" style={{ padding: "13px 22px", borderRadius: 12, fontSize: 15 }}>
               {t("+ Neue Aufgabe", "+ New task")}
             </button>
+            <PlusHinweis quota={shell.quota} onOpen={() => nav("/app/preise")} />
           </div>
         </div>
       </div>
@@ -566,7 +608,7 @@ export default function Lernen() {
       shell.reloadTopics?.();
       if (geloest && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
         setCelebrate(true);
-        setTimeout(() => setCelebrate(false), 3200);
+        clearTimeout(konfettiTimer.current); konfettiTimer.current = setTimeout(() => setCelebrate(false), 3200);
       }
     } catch (e) {
       await dialog.hinweis({
@@ -788,7 +830,7 @@ export default function Lernen() {
                   ? t("🎁 Deine Gratis-Aufgaben sind aufgebraucht", "🎁 Your free tasks are used up")
                   : t("⚡ Dein Guthaben ist aufgebraucht", "⚡ Your balance is used up");
               const text = grund === "plus_leer"
-                ? t("Deine Nachricht wurde nicht gesendet. Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Your message was not sent. Top up a token package – or wait for your subscription's next credit.")
+                ? t("Deine Nachricht wurde nicht gesendet. Lad ein Token-Paket nach – oder warte auf den nächsten Abo-Monat, dann gibt es neue Abo-Tokens.", "Your message was not sent. Top up a token package – or wait for your next subscription month, which brings new subscription tokens.")
                 : grund === "trial"
                   ? t(`Deine Nachricht wurde nicht gesendet. Mit ${plusName} übst du weiter – jederzeit kündbar.`, `Your message was not sent. With ${plusName} you keep practising – cancel anytime.`)
                   /* Bei einer Schnellantwort war das Eingabefeld nie gefuellt –

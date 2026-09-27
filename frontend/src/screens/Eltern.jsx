@@ -306,11 +306,21 @@ export default function Eltern() {
             </div>
             <div>
               <button
-                onClick={() => { navigator.clipboard?.writeText(invite.invite_code); setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+                onClick={async () => {
+                  // Kopieren kann scheitern (fehlende Berechtigung, alter Browser).
+                  // Vorher stand trotzdem «kopiert ✓» – und das Kind schickte nichts.
+                  try {
+                    await navigator.clipboard.writeText(invite.invite_code);
+                    setCopied(true);
+                  } catch {
+                    setCopied("fehler");
+                  }
+                  setTimeout(() => setCopied(false), 2500);
+                }}
                 className="btn-primary"
                 style={{ padding: "10px 20px", borderRadius: 10, fontSize: 13, border: "none" }}
               >
-                {copied ? t("kopiert ✓", "copied ✓") : t("Code kopieren", "Copy code")}
+                {copied === "fehler" ? t("Bitte von Hand abschreiben", "Please copy it by hand") : copied ? t("kopiert ✓", "copied ✓") : t("Code kopieren", "Copy code")}
               </button>
             </div>
           </div>

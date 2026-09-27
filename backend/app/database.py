@@ -160,6 +160,9 @@ def _schema_sicherstellen() -> None:
         ("users", "abo_bis", "ALTER TABLE users ADD COLUMN abo_bis TIMESTAMP"),
         ("users", "abo_gekuendigt", "ALTER TABLE users ADD COLUMN abo_gekuendigt BOOLEAN DEFAULT FALSE NOT NULL"),
         ("users", "abo_intervall", "ALTER TABLE users ADD COLUMN abo_intervall VARCHAR(8)"),
+        # Abo-Tokens verfallen monatlich: eigener Topf neben token_balance.
+        ("users", "abo_tokens", "ALTER TABLE users ADD COLUMN abo_tokens INTEGER DEFAULT 0 NOT NULL"),
+        ("users", "abo_periode", "ALTER TABLE users ADD COLUMN abo_periode VARCHAR(16)"),
     ]
     # Spalten EINMAL pro Tabelle holen statt einmal pro Migrations-Eintrag:
     # 13 Eintraege verteilen sich auf 4 Tabellen.

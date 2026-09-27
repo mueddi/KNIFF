@@ -1,10 +1,15 @@
 """Test-Setup: eigene SQLite-DB, frisch pro Test.
 
 DATABASE_URL muss VOR dem App-Import gesetzt sein (engine entsteht beim Import).
+Mit TEST_DATABASE_URL laufen die Tests gegen eine (leere, eigene!) Postgres-
+Datenbank wie in der Produktion – noetig fuer tests/test_gleichzeitig.py,
+denn SQLite sperrt beim Schreiben die ganze Datei und verdeckt so Fehler,
+die nur Postgres (Zeilen-Sperren) zeigt. Die Tabellen werden pro Test
+geloescht: NIE auf eine echte Datenbank zeigen lassen.
 """
 import os
 
-os.environ["DATABASE_URL"] = "sqlite:///./test_schrittweise.db"
+os.environ["DATABASE_URL"] = os.environ.get("TEST_DATABASE_URL") or "sqlite:///./test_schrittweise.db"
 os.environ["MAGIC_LINK_DEV_RETURN"] = "true"
 os.environ["ANTHROPIC_API_KEY"] = ""  # Mock-Tutor erzwingen
 # In Produktion ist die E-Mail-Bestaetigung Pflicht. Tests bestaetigen keine

@@ -3,12 +3,14 @@
 Ablauf: Frontend ruft /checkout auf -> Stripe-Bezahlseite (Karte/TWINT,
 mode=subscription) -> Stripe meldet per signiertem Webhook, was mit dem Abo
 passiert (abgeschlossen, verlaengert, gekuendigt, beendet) -> abo_bis am
-Konto wird nachgefuehrt und jede bezahlte Rechnung schreibt die Abo-Tokens
-gut (plus_tokens_monat, Jahresabo zwoelffach). Kuendigen laeuft ueber die
-eigenen Endpunkte (cancel_at_period_end), kein Stripe-Kundenportal noetig.
+Konto wird nachgefuehrt. Die Abo-Tokens bucht keine Rechnung: solange abo_bis
+in der Zukunft liegt, gibt services/quota jeden Abo-Monat frische
+plus_tokens_monat (der Rest verfaellt), beim Jahresabo Monat fuer Monat.
+Kuendigen laeuft ueber die eigenen Endpunkte (cancel_at_period_end), kein
+Stripe-Kundenportal noetig.
 
 Token-Pakete (/tokens, mode=payment) gibt es nur mit aktivem Abo; sie landen
-im selben Guthaben wie die Abo-Gutschrift, nichts davon verfaellt.
+im gekauften Guthaben (token_balance) und verfallen nie.
 
 Die Stripe-API wird direkt über httpx angesprochen (form-encoded REST), die
 Webhook-Signatur (HMAC-SHA256) wird mit der Standardbibliothek geprüft –
@@ -24,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 
 import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -32,7 +34,7 @@ from .. import i18n
 from ..config import settings
 from ..database import get_db
 from ..deps import get_current_user
-from ..models import ParentLink, Payment, Plan, Role, StripeEvent, User
+from ..models import ParentLink, Payment, Plan, Role, StripeEvent, TokenAdjustment, User
 from ..schemas import AboRequest, CheckoutRequest, TokenKaufRequest
 from ..services import alert, quota
 from ..services.quota import PAKETE as PACKAGES
@@ -97,6 +99,45 @@ def _stripe(method: str, path: str, data: dict | None = None) -> dict:
         log.error("Stripe %s %s fehlgeschlagen: HTTP %s – %s", method, path, resp.status_code, resp.text[:400])
         raise HTTPException(status.HTTP_502_BAD_GATEWAY, "Zahlung konnte nicht gestartet werden – versuch es gleich nochmal.")
     return resp.json()
+
+
+def abo_vor_loeschung_beenden(user: User) -> None:
+    """Laeuft auf dem Konto ein Abo, das sich noch verlaengern wuerde, wird es
+    bei Stripe SOFORT beendet - bevor das Konto geloescht wird.
+
+    Sonst bucht Stripe Monat fuer Monat weiter ab, und das Konto, ueber das
+    man kuendigen koennte, gibt es nicht mehr. Klappt das Beenden nicht,
+    bricht die Loeschung ab (HTTPException): lieber ein Konto zu viel als
+    Abbuchungen ohne Konto. Ein gekuendigtes Abo verlaengert sich nicht mehr
+    und braucht nichts; kennt Stripe das Abo nicht (404), ist nichts offen."""
+    if not user.stripe_subscription_id or not quota.plus_aktiv(user) or user.abo_gekuendigt:
+        return
+    lang = i18n.lang_of(user)
+    fehler = i18n.t(lang,
+                    "Dein Abo konnte gerade nicht beendet werden. Damit nichts weiter abgebucht wird, bleibt das Konto bestehen – versuch es in ein paar Minuten nochmal.",
+                    "Your subscription could not be ended right now. So that nothing keeps being charged, the account stays – please try again in a few minutes.")
+    sid = user.stripe_subscription_id
+    try:
+        if not settings.payments_enabled:
+            raise RuntimeError("Zahlung nicht konfiguriert")
+        resp = httpx.request(
+            "DELETE", f"https://api.stripe.com/v1/subscriptions/{sid}",
+            auth=(settings.stripe_secret_key, ""),
+            headers={"Stripe-Version": settings.stripe_api_version},
+            timeout=20,
+        )
+    except (httpx.HTTPError, RuntimeError) as e:
+        log.error("Abo %s vor Kontoloeschung nicht beendet: %s", sid, e)
+        alert.notify("zahlung", f"Kontoloeschung abgebrochen: Abo {sid} liess sich nicht beenden ({e}).", key=sid)
+        raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, fehler)
+    if resp.status_code == 404:
+        log.warning("Abo %s bei Stripe unbekannt – Kontoloeschung laeuft weiter", sid)
+        return
+    if resp.status_code != 200:
+        log.error("Abo %s vor Kontoloeschung nicht beendet: HTTP %s – %s", sid, resp.status_code, resp.text[:400])
+        alert.notify("zahlung", f"Kontoloeschung abgebrochen: Abo {sid} liess sich nicht beenden (HTTP {resp.status_code}).", key=sid)
+        raise HTTPException(status.HTTP_502_BAD_GATEWAY, fehler)
+    log.info("Abo %s vor Kontoloeschung beendet (Nutzer %s)", sid, user.id)
 
 
 def _utcnow_naiv() -> datetime:
@@ -254,26 +295,18 @@ def tokens_kaufen(request: Request, payload: TokenKaufRequest | None = None,
     return {"url": session["url"]}
 
 
-def _abo_tokens(intervall: str | None) -> int:
-    """Was eine bezahlte Abo-Rechnung gutschreibt: ein Monat, beim Jahresabo
-    zwoelf auf einmal."""
-    return settings.plus_tokens_monat * (12 if intervall == "jahr" else 1)
-
-
-def _gutschrift(db: Session, user: User, kennung: str, betrag: int | None, tokens: int) -> bool:
-    """Tokens gutschreiben, genau einmal pro Kennung (Rechnungs- oder
+def _zahlung_verbuchen(db: Session, user: User, kennung: str, betrag: int | None) -> bool:
+    """Abo-Zahlung festhalten, genau einmal pro Kennung (Rechnungs- oder
     Session-ID): die Payment-Zeile mit unique session_id ist der Riegel.
-    Rueckgabe: ob gutgeschrieben wurde."""
+    Tokens bucht sie keine (tokens=0) - die Abo-Tokens kommen monatlich aus
+    services/quota. Rueckgabe: ob neu verbucht wurde."""
     db.add(Payment(user_id=user.id, session_id=kennung,
-                   amount_rappen=betrag if isinstance(betrag, int) else 0, tokens=tokens))
+                   amount_rappen=betrag if isinstance(betrag, int) else 0, tokens=0))
     try:
         db.flush()
     except IntegrityError:
         db.rollback()
         return False
-    if tokens > 0:
-        db.execute(update(User).where(User.id == user.id)
-                   .values(token_balance=User.token_balance + tokens))
     return True
 
 
@@ -379,14 +412,12 @@ def _abo_abgeschlossen(db: Session, session: dict) -> None:
         # Nie ein bezahltes Kind aussperren: vorlaeufig; invoice.paid korrigiert.
         ende = _utcnow_naiv() + timedelta(days=367 if intervall == "jahr" else 32)
     user.abo_bis = ende
-    # Erste Gutschrift. Kennung ist die Rechnung der Session, damit das
-    # invoice.paid derselben Rechnung nicht ein zweites Mal gutschreibt -
+    # Zahlung festhalten. Kennung ist die Rechnung der Session, damit das
+    # invoice.paid derselben Rechnung sie nicht ein zweites Mal verbucht -
     # egal, welches der beiden Ereignisse zuerst eintrifft.
     kennung = session.get("invoice") if isinstance(session.get("invoice"), str) else session.get("id")
     if kennung:
-        tokens = _abo_tokens(intervall)
-        if _gutschrift(db, user, kennung, session.get("amount_total"), tokens):
-            log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (%s)", user.id, tokens, kennung)
+        _zahlung_verbuchen(db, user, kennung, session.get("amount_total"))
     log.info("Abo abgeschlossen: Nutzer %s, %s, bis %s", user.id, intervall, ende)
 
 
@@ -414,18 +445,14 @@ def _abo_verlaengert(db: Session, invoice: dict) -> None:
             pass
     if ende and (user.abo_bis is None or ende > user.abo_bis):
         user.abo_bis = ende
-    # Abo-Tokens gutschreiben: Intervall aus der Rechnungszeile, sonst vom Konto.
-    intervall = user.abo_intervall
+    # Intervall aus der Rechnungszeile nachfuehren (Anzeige «Monat»/«Jahr»).
     for line in lines:
         recurring = ((line.get("price") or {}).get("recurring") or {}) or (line.get("plan") or {})
         if recurring.get("interval") in ("month", "year"):
-            intervall = "jahr" if recurring["interval"] == "year" else "monat"
+            user.abo_intervall = "jahr" if recurring["interval"] == "year" else "monat"
             break
-    if invoice.get("id"):
-        tokens = _abo_tokens(intervall)
-        if not _gutschrift(db, user, invoice["id"], invoice.get("amount_paid"), tokens):
-            return  # schon verbucht (z.B. ueber checkout.session.completed)
-        log.info("Abo-Gutschrift: Nutzer %s +%s Tokens (Rechnung %s)", user.id, tokens, invoice["id"])
+    if invoice.get("id") and not _zahlung_verbuchen(db, user, invoice["id"], invoice.get("amount_paid")):
+        return  # schon verbucht (z.B. ueber checkout.session.completed)
     log.info("Abo verlaengert: Nutzer %s bis %s (Rechnung %s)", user.id, user.abo_bis, invoice.get("id"))
 
 
@@ -506,10 +533,83 @@ def _paket_gutschrift(db: Session, session: dict) -> None:
     log.info("Zahlung verbucht: Nutzer %s, +%s Tokens (%s, Session %s)", user.id, pkg["tokens"], pkg_key, session["id"])
 
 
+def _kauf_zur_zahlung(db: Session, obj: dict) -> tuple[Payment | None, str | None]:
+    """Welcher Kauf steckt hinter einer Charge bzw. einem Streitfall?
+
+    Stripe meldet Erstattung und Streitfall an der Zahlung (payment_intent),
+    die App kennt aber die Bezahlseite (Checkout-Session). Also fragen wir
+    Stripe nach der Session zu dieser Zahlung. Rueckgabe: (Payment-Zeile oder
+    None, Modus der Session "payment"|"subscription"|None). Ist Stripe nicht
+    erreichbar, fliegt die HTTPException durch - der Webhook antwortet mit
+    Fehler, das Ereignis bleibt unverbucht und Stripe versucht es erneut."""
+    pi = obj.get("payment_intent")
+    if not isinstance(pi, str) or not pi:
+        return None, None
+    sessions = (_stripe("GET", f"/v1/checkout/sessions?payment_intent={pi}").get("data")) or []
+    for s in sessions:
+        sid = s.get("id")
+        zahlung = db.query(Payment).filter(Payment.session_id == sid).one_or_none() if sid else None
+        return zahlung, s.get("mode")
+    return None, None
+
+
+def _tokens_zurueckbuchen(db: Session, zahlung: Payment, charge_id: str, ziel: int, art: str) -> int:
+    """Nimmt die Tokens eines erstatteten/angefochtenen Pakets wieder weg -
+    insgesamt hoechstens ``ziel`` je Charge (Stripe meldet Erstattungen
+    kumuliert; Teil- und Folge-Erstattungen buchen nur die Differenz). Das
+    Guthaben faellt nie unter 0: schon Verbrauchtes ist verbraucht. Jede
+    Buchung steht als TokenAdjustment im Protokoll. Rueckgabe: abgezogen."""
+    marke = f"Stripe-Rueckbuchung {charge_id}"
+    schon = -int(db.scalar(
+        select(func.coalesce(func.sum(TokenAdjustment.tokens), 0))
+        .where(TokenAdjustment.user_id == zahlung.user_id, TokenAdjustment.reason.like(f"{marke}%"))
+    ) or 0)
+    abzug = min(ziel, zahlung.tokens) - schon
+    if abzug <= 0:
+        return 0
+    db.add(TokenAdjustment(user_id=zahlung.user_id, admin_id=None, tokens=-abzug, reason=f"{marke} ({art})"))
+    db.execute(update(User).where(User.id == zahlung.user_id).values(
+        token_balance=case((User.token_balance - abzug > 0, User.token_balance - abzug), else_=0)))
+    log.info("%s: Nutzer %s -%s Tokens (Charge %s)", art, zahlung.user_id, abzug, charge_id)
+    return abzug
+
+
+def _erstattet(db: Session, charge: dict) -> None:
+    """charge.refunded: bei einem Token-Paket die erstatteten Tokens abziehen
+    (1 Token = 1 Rappen, also so viele wie Rappen erstattet). Alles andere -
+    etwa eine erstattete Abo-Rechnung - braucht einen Blick des Betreibers."""
+    cid = charge.get("id") or "?"
+    zahlung, modus = _kauf_zur_zahlung(db, charge)
+    betrag = f"CHF {int(charge.get('amount_refunded') or 0) / 100:.2f}"
+    if zahlung is None or modus != "payment":
+        alert.notify("zahlung", f"Erstattung {cid} ({betrag}) gehoert zu keinem Token-Paket der App"
+                     f"{' (Abo-Zahlung)' if modus == 'subscription' else ''} – im Stripe-Dashboard pruefen, "
+                     "ob das Abo beendet werden soll.", key=cid)
+        return
+    _tokens_zurueckbuchen(db, zahlung, cid, int(charge.get("amount_refunded") or 0), "Erstattung")
+
+
+def _angefochten(db: Session, dispute: dict) -> None:
+    """charge.dispute.created: jemand hat die Zahlung bei der Bank angefochten.
+    Der Betreiber muss in Stripe fristgerecht antworten -> immer Alarm. Bei
+    einem Token-Paket sind die Tokens sofort weg (das Geld ist es auch)."""
+    cid = dispute.get("charge") if isinstance(dispute.get("charge"), str) else "?"
+    betrag = f"CHF {int(dispute.get('amount') or 0) / 100:.2f}"
+    alert.notify("zahlung", f"Zahlung angefochten: Streitfall {dispute.get('id')} zu Charge {cid} ({betrag}). "
+                 "Im Stripe-Dashboard vor Ablauf der Frist Belege einreichen oder akzeptieren.",
+                 key=str(dispute.get("id")))
+    zahlung, modus = _kauf_zur_zahlung(db, dispute)
+    if zahlung is not None and modus == "payment":
+        _tokens_zurueckbuchen(db, zahlung, cid, zahlung.tokens, "Streitfall")
+
+
 @router.post("/webhook")
 async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     """Von Stripe aufgerufen. Fuehrt Abos nach, schreibt Abo-Tokens und
-    Paket-Kaeufe gut – idempotent pro Ereignis-ID, immer 200 (sonst Retry-Sturm)."""
+    Paket-Kaeufe gut, bucht erstattete/angefochtene Pakete zurueck –
+    idempotent pro Ereignis-ID, 200 (sonst Retry-Sturm); nur wenn Stripe
+    selbst fuer eine Rueckfrage nicht erreichbar ist, ein Fehler, damit
+    Stripe das Ereignis spaeter nochmal schickt."""
     if not settings.payments_enabled:
         raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, "Zahlung nicht konfiguriert.")
     payload = await request.body()
@@ -536,6 +636,8 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
         "invoice.paid": lambda: _abo_verlaengert(db, obj),
         "customer.subscription.updated": lambda: _abo_geaendert(db, obj, geloescht=False),
         "customer.subscription.deleted": lambda: _abo_geaendert(db, obj, geloescht=True),
+        "charge.refunded": lambda: _erstattet(db, obj),
+        "charge.dispute.created": lambda: _angefochten(db, obj),
     }.get(typ)
     if handler is None:
         return {"received": True}

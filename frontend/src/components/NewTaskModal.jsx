@@ -83,6 +83,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
   }
 
   async function start() {
+    if (busy || ocrBusy) return; // Erkennung laeuft noch: sonst startet die Aufgabe ohne den erkannten Text
     if (!text.trim() && !imagePath) {
       setError(t("Schreib zuerst die Aufgabe auf (oder lad ein Foto hoch).", "Write down the task first (or upload a photo)."));
       return;
@@ -256,7 +257,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
             const titel = grund === "plus_leer" ? t("Deine Tokens sind aufgebraucht ⚡", "Your tokens are used up ⚡")
               : grund === "trial" ? t("Deine Gratis-Aufgaben sind aufgebraucht 🙌", "Your free tasks are used up 🙌")
                 : t("Dein Guthaben ist aufgebraucht 🙌", "Your balance is used up 🙌");
-            const text = grund === "plus_leer" ? t("Lad ein Token-Paket nach – oder warte auf die nächste Gutschrift deines Abos.", "Top up a token package – or wait for your subscription's next credit.")
+            const text = grund === "plus_leer" ? t("Lad ein Token-Paket nach – oder warte auf den nächsten Abo-Monat, dann gibt es neue Abo-Tokens.", "Top up a token package – or wait for your next subscription month, which brings new subscription tokens.")
               : grund === "trial" ? t(`Mit ${plusName} übst du weiter – jederzeit kündbar.`, `With ${plusName} you keep practising – cancel anytime.`)
                 : t("Du hast diesen Monat fleissig geübt! Mit einem Token-Paket geht es sofort weiter – oder du wartest auf den nächsten Monat (dann gibt es wieder 50 Gratis-Tokens).", "You've practiced a lot this month! With a token package you can continue right away – or wait for next month (another 50 free tokens).");
             return (
@@ -278,7 +279,7 @@ export default function NewTaskModal({ onClose, presetTopicId }) {
             <span>🔒</span> {t("Dein Bild wird nur für die Erkennung verwendet und trainiert keine KI-Modelle.", "Your image is only used for recognition and does not train any AI models.")}
           </div>
 
-          <button onClick={start} disabled={busy} className="btn-primary" style={{ width: "100%", borderRadius: 12, padding: 13, fontSize: 15, border: "none", opacity: busy ? 0.7 : 1 }}>
+          <button onClick={start} disabled={busy || ocrBusy} className="btn-primary" style={{ width: "100%", borderRadius: 12, padding: 13, fontSize: 15, border: "none", opacity: busy || ocrBusy ? 0.7 : 1 }}>
             {busy ? t("startet …", "starting …") : t("Loslegen →", "Let's go →")}
           </button>
         </div>

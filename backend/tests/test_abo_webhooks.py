@@ -176,16 +176,20 @@ def test_rechnung_verlaengert_das_abo(client, stripe, neue_form):
     _post_event(client, "invoice.paid", invoice, event_id=f"evt_inv_{neue_form}")
     u = _user("mia@test.ch")
     assert u.abo_bis > datetime.utcnow() + timedelta(days=31)
-    assert u.token_balance == settings.plus_tokens_monat  # die Rechnung schreibt den Monat gut
+    # Die Rechnung bucht keine Tokens ins gekaufte Guthaben - die Abo-Tokens
+    # kommen aus dem Abo-Monat und verfallen mit ihm.
+    assert u.token_balance == 0
+    assert client.get("/api/quota", headers=headers).json()["abo_tokens"] == settings.plus_tokens_monat
     with SessionLocal() as db:
         zahlung = db.query(Payment).filter(Payment.session_id == "in_1").one()
-        assert (zahlung.amount_rappen, zahlung.tokens, zahlung.user_id) == (990, settings.plus_tokens_monat, uid)
-    # Dieselbe Rechnung nochmal (Retry): keine zweite Gutschrift
+        assert (zahlung.amount_rappen, zahlung.tokens, zahlung.user_id) == (990, 0, uid)
+    # Dieselbe Rechnung nochmal (Retry): keine zweite Zahlung verbucht
     _post_event(client, "invoice.paid", invoice, event_id=f"evt_inv2_{neue_form}")
-    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
+    with SessionLocal() as db:
+        assert db.query(Payment).filter(Payment.session_id == "in_1").count() == 1
 
 
-def test_jahresrechnung_schreibt_zwoelf_monate_gut(client, stripe):
+def test_jahresrechnung_gibt_nicht_zwoelf_monate_auf_einmal(client, stripe):
     headers = register_pw(client, "mia@test.ch")
     uid = _me(client, headers)["id"]
     with SessionLocal() as db:
@@ -196,12 +200,15 @@ def test_jahresrechnung_schreibt_zwoelf_monate_gut(client, stripe):
                "lines": {"data": [{"period": {"end": _ts(365)},
                                    "price": {"recurring": {"interval": "year"}}}]}}  # ... die Rechnung Jahr
     _post_event(client, "invoice.paid", invoice, event_id="evt_jahr")
-    assert _user("mia@test.ch").token_balance == 12 * settings.plus_tokens_monat
+    u = _user("mia@test.ch")
+    assert (u.token_balance, u.abo_intervall) == (0, "jahr")
+    q = client.get("/api/quota", headers=headers).json()
+    assert (q["abo_tokens"], q["remaining"]) == (settings.plus_tokens_monat, settings.plus_tokens_monat)
 
 
-def test_abschluss_und_erste_rechnung_schreiben_nur_einmal_gut(client, stripe):
+def test_abschluss_und_erste_rechnung_verbuchen_nur_einmal(client, stripe):
     """checkout.session.completed und invoice.paid derselben Rechnung kommen
-    beide – in beliebiger Reihenfolge. Gutgeschrieben wird genau einmal."""
+    beide – in beliebiger Reihenfolge. Verbucht wird genau einmal."""
     calls, antworten = stripe
     headers = register_pw(client, "mia@test.ch")
     uid = _me(client, headers)["id"]
@@ -212,9 +219,11 @@ def test_abschluss_und_erste_rechnung_schreiben_nur_einmal_gut(client, stripe):
     invoice = {"id": "in_erste", "subscription": "sub_1", "amount_paid": 990,
                "lines": {"data": [{"period": {"end": _ts(30)}}]}}
     _post_event(client, "checkout.session.completed", session, event_id="evt_cs")
-    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
     _post_event(client, "invoice.paid", invoice, event_id="evt_in")
-    assert _user("mia@test.ch").token_balance == settings.plus_tokens_monat
+    with SessionLocal() as db:
+        assert db.query(Payment).filter(Payment.session_id == "in_erste").count() == 1
+    assert _user("mia@test.ch").token_balance == 0
+    assert client.get("/api/quota", headers=headers).json()["abo_tokens"] == settings.plus_tokens_monat
     assert _user("mia@test.ch").abo_bis > datetime.utcnow() + timedelta(days=29)
 
 
