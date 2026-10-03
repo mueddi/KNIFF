@@ -123,6 +123,12 @@ a {
 .katex { font-size: 1.12em; }
 /* Eigenstaendige Rechenschritte ($$...$$) als «Schulheft-Box» */
 .katex-display {
+  /* Lange Rechnungen sprengen auf dem Handy sonst die Bubble und schieben
+     den ganzen Chat seitlich weg (gemessen 3.10.: Bubble 705 px auf 390 px
+     Breite) – stattdessen scrollt nur die Formel selbst. */
+  overflow-x: auto;
+  overflow-y: hidden;
+  max-width: 100%;
   margin: 8px 0;
   background: #f7f8ff;
   border: 1px solid #e0e2fb;
@@ -216,6 +222,25 @@ a {
 
 @media (max-width: 560px) {
   .themen-grid, .preise-grid, .eltern-tiles { grid-template-columns: 1fr !important; }
+}
+
+/* ---------- Chat auf kleinen Bildschirmen ----------
+   Mit offener Tastatur blieben vom Chat 100–160 px (gemessen 3.10.,
+   390×640): Kopf, Aufgaben-Box, Schnellantworten und Mathe-Tasten standen
+   fest. Bei wenig Hoehe wird die Aufgabe zur schmalen, scrollbaren Leiste
+   und der Kopf kompakt – die Aufgabe bleibt sichtbar, der Chat bekommt Platz. */
+@media (max-height: 700px) {
+  .chat-kopf { padding-top: 8px !important; padding-bottom: 8px !important; }
+  .chat-kopf-unterzeile { display: none; }
+  .chat-aufgabe-rand { padding-top: 6px !important; }
+  .chat-aufgabe { max-height: 64px !important; padding-top: 6px !important; padding-bottom: 6px !important; }
+  .chat-eingabe-bereich { padding-top: 8px !important; padding-bottom: 8px !important; }
+}
+@media (max-width: 560px) {
+  .chat-kopf { padding-left: 14px !important; padding-right: 14px !important; }
+  .chat-verlauf { padding-left: 12px !important; padding-right: 12px !important; }
+  .chat-aufgabe-rand { padding-left: 12px !important; padding-right: 12px !important; }
+  .chat-eingabe-bereich { padding-left: 10px !important; padding-right: 10px !important; }
 }
 
 /* KaTeX-Haarlinien: Bruch-/Wurzelstriche sind nur 0.04em duenn und werden

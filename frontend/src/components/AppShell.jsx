@@ -156,7 +156,7 @@ export default function AppShell() {
 
   return (
     <ShellCtx.Provider value={shellValue}>
-      <div style={{ height: "100vh", display: "flex", background: "#fff", overflow: "hidden" }} className="app-root">
+      <div style={{ height: "100dvh", display: "flex", background: "#fff", overflow: "hidden" }} className="app-root">
         <div className={`sidebar-backdrop ${navOpen ? "show" : ""}`} onClick={() => setNavOpen(false)} />
         {/* SIDEBAR */}
         <div style={{ flex: "0 0 244px", background: "#fbfbfd", borderRight: "1px solid #eef0f3", display: "flex", flexDirection: "column" }} className={`sidebar ${navOpen ? "open" : ""}`}>

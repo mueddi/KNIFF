@@ -126,13 +126,13 @@ function Bubble({ role, verifyStatus, hintLevel, children }) {
   const correct = !tutor && verifyStatus === "correct";
   const incorrect = !tutor && verifyStatus === "incorrect";
   return (
-    <div style={{ alignSelf: tutor ? "flex-start" : "flex-end", maxWidth: "78%", display: "flex", flexDirection: "column", alignItems: tutor ? "flex-start" : "flex-end", gap: 4 }}>
+    <div style={{ alignSelf: tutor ? "flex-start" : "flex-end", maxWidth: "78%", minWidth: 0, display: "flex", flexDirection: "column", alignItems: tutor ? "flex-start" : "flex-end", gap: 4 }}>
       {tag && (
         <span style={{ marginLeft: 34, fontSize: 10.5, fontWeight: 700, borderRadius: 999, padding: "2px 9px", background: tag.bg, color: tag.fg }}>
           {tag.label[li]}
         </span>
       )}
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, position: "relative" }}>
+      <div style={{ display: "flex", alignItems: "flex-end", gap: 8, position: "relative", minWidth: 0, maxWidth: "100%" }}>
         {tutor && (
           <span aria-hidden style={{ flex: "0 0 26px", width: 26, height: 26, borderRadius: "50%", background: "#eef0fe", color: "#4f46e5", display: "grid", placeItems: "center", fontSize: 13, fontWeight: 800, border: "1px solid #e0e2fb" }}>∑</span>
         )}
@@ -154,6 +154,8 @@ function Bubble({ role, verifyStatus, hintLevel, children }) {
             fontSize: 14.5,
             lineHeight: 1.6,
             whiteSpace: "pre-wrap",
+            minWidth: 0,
+            overflowWrap: "anywhere", // lange Woerter/Links brechen statt die Seite zu sprengen
           }}
         >
           {children}
@@ -189,6 +191,10 @@ const ANDERS = [
   { label: ["🔢 Mit Zahlen statt x", "🔢 With numbers instead of x"], text: "Erklär es mir mit konkreten Zahlen statt mit x." },
 ];
 
+// Kamera/Stift neben dem Eingabefeld: echte Knoepfe mit Fingergroesse (vorher
+// 19×18 px grosse <span>, ohne Tastatur-Bedienung).
+const ICON_KNOPF = { flex: "0 0 40px", width: 40, height: 40, border: "none", background: "transparent", borderRadius: "50%", fontSize: 17, cursor: "pointer", display: "grid", placeItems: "center", padding: 0 };
+
 function QuickReplies({ solved, unlocked, onSend, onNew, onVariant, fertigMoeglich }) {
   const { t, lang } = useLang();
   const li = lang === "en" ? 1 : 0;
@@ -221,7 +227,7 @@ function QuickReplies({ solved, unlocked, onSend, onNew, onVariant, fertigMoegli
           key={it.label}
           onClick={it.act}
           style={{
-            flex: "0 0 auto", borderRadius: 999, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
+            flex: "0 0 auto", minHeight: 40, borderRadius: 999, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
             border: it.accent ? "1px solid #bfe3cb" : "1px solid #dcdff5",
             background: it.accent ? "#e8f6ec" : "#f8f8ff",
             color: it.accent ? "#1a7f3c" : "#4f46e5",
@@ -723,15 +729,15 @@ export default function Lernen() {
   return (
     <div style={{ display: "flex", flexDirection: "column", height: "100%", position: "relative" }}>
       {celebrate && <Confetti />}
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 22px", borderBottom: "1px solid #eef0f3", flexWrap: "wrap" }}>
-        <div>
+      <div className="chat-kopf" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "8px 16px", padding: "14px 22px", borderBottom: "1px solid #eef0f3", flexWrap: "wrap" }}>
+        <div style={{ minWidth: 0 }}>
           <div style={{ fontSize: 15, fontWeight: 700 }}>{topicName}</div>
-          <div style={{ fontSize: 12, color: "#9aa0ab" }}>
+          <div className="chat-kopf-unterzeile" style={{ fontSize: 12, color: "#9aa0ab" }}>
             {attempt.solved ? t("gelöst · gut gemacht", "solved · well done") : t("Schritt für Schritt", "Step by step")}
             {stats?.serie_tage >= 2 && <span style={{ color: "#d97706", fontWeight: 700 }}> · 🔥 {stats.serie_tage} {t("Tage in Folge", "days in a row")}</span>}
           </div>
         </div>
-        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", whiteSpace: "nowrap" }}>
           {/* Kein Knopf zum Selber-Abhaken: ob eine Aufgabe fertig ist,
               entscheidet der Tutor, wenn er die Rechnung gesehen hat. Was
               bleibt, ist die Korrektur eines FALSCHEN Hakens. */}
@@ -760,8 +766,8 @@ export default function Lernen() {
 
       {/* Aufgabe immer sichtbar – Schueler muessen nie hochscrollen.
           Foto-Aufgaben: das BILD ist die Aufgabe (Text nur auf Wunsch). */}
-      <div style={{ background: "#f6f7fb", padding: "12px 24px 0" }}>
-        <div style={{ background: "#f8f8ff", border: "1px solid #e0e2fb", borderRadius: 14, padding: "10px 16px", maxHeight: exercise.image_path && showTaskImage ? 270 : 130, overflowY: "auto" }}>
+      <div className="chat-aufgabe-rand" style={{ background: "#f6f7fb", padding: "12px 24px 0" }}>
+        <div className="chat-aufgabe" style={{ background: "#f8f8ff", border: "1px solid #e0e2fb", borderRadius: 14, padding: "10px 16px", maxHeight: exercise.image_path && showTaskImage ? 270 : 130, overflowY: "auto" }}>
           <div style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".07em", color: "#4f46e5", marginBottom: 3 }}>{t("DEINE AUFGABE", "YOUR TASK")}</div>
           {exercise.image_path ? (
             <>
@@ -804,7 +810,7 @@ export default function Lernen() {
         </div>
       </div>
 
-      <div ref={chatRef} style={{ flex: 1, background: "#f6f7fb", padding: "18px 24px 22px", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto" }}>
+      <div ref={chatRef} className="chat-verlauf" style={{ flex: 1, background: "#f6f7fb", padding: "18px 24px 22px", display: "flex", flexDirection: "column", gap: 16, overflowY: "auto", overflowX: "hidden" }}>
         {(() => {
           const out = [];
           let lastLevel = 0;
@@ -898,7 +904,7 @@ export default function Lernen() {
         )}
       </div>
 
-      <div style={{ padding: "12px 18px 14px", background: "#fff", borderTop: "1px solid #eef0f3" }}>
+      <div className="chat-eingabe-bereich" style={{ padding: "12px 18px calc(14px + env(safe-area-inset-bottom))", background: "#fff", borderTop: "1px solid #eef0f3" }}>
         {!busy && (
           <QuickReplies
             solved={attempt.solved}
@@ -936,7 +942,7 @@ export default function Lernen() {
               type="button"
               onMouseDown={(e) => e.preventDefault() /* Fokus bleibt im Eingabefeld */}
               onClick={() => insertSymbol(snippet, offset)}
-              style={{ flex: "0 0 auto", minWidth: 40, borderRadius: 10, padding: "7px 10px", fontSize: 14, fontWeight: 600, border: "1px solid #e7e8ee", background: "#fbfbfd", color: "#1a1c22", cursor: "pointer" }}
+              style={{ flex: "0 0 auto", minWidth: 40, minHeight: 40, borderRadius: 10, padding: "7px 10px", fontSize: 14, fontWeight: 600, border: "1px solid #e7e8ee", background: "#fbfbfd", color: "#1a1c22", cursor: "pointer" }}
             >
               {label}
             </button>
@@ -955,18 +961,23 @@ export default function Lernen() {
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" onChange={attachPhoto} style={{ display: "none" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 8, border: "1px solid #d2d4dd", borderRadius: 24, padding: "7px 8px 7px 14px" }}>
-          <span onClick={() => !uploadBusy && fileRef.current?.click()} title={t("Foto anhängen", "Attach photo")} style={{ color: "#b6bcc6", fontSize: 15, cursor: "pointer", opacity: uploadBusy ? 0.5 : 1 }}>{uploadBusy ? "⏳" : "📷"}</span>
-          <span onClick={() => setDrawOpen(true)} title={t("Mit dem Stift schreiben oder zeichnen", "Write or draw with a pen")} style={{ color: "#b6bcc6", fontSize: 15, cursor: "pointer" }}>✍️</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid #d2d4dd", borderRadius: 26, padding: "4px 5px 4px 4px" }}>
+          <button type="button" onClick={() => !uploadBusy && fileRef.current?.click()} disabled={uploadBusy}
+                  title={t("Foto anhängen", "Attach photo")} aria-label={t("Foto anhängen", "Attach photo")}
+                  style={{ ...ICON_KNOPF, opacity: uploadBusy ? 0.5 : 1 }}>{uploadBusy ? "⏳" : "📷"}</button>
+          <button type="button" onClick={() => setDrawOpen(true)}
+                  title={t("Mit dem Stift schreiben oder zeichnen", "Write or draw with a pen")} aria-label={t("Mit dem Stift schreiben", "Write with a pen")}
+                  style={ICON_KNOPF}>✍️</button>
           <input
             ref={inputRef}
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && send()}
             placeholder={t("Schreib deinen nächsten Schritt …", "Write your next step …")}
-            style={{ flex: 1, border: "none", outline: "none", fontSize: 13, color: "#1a1c22", background: "transparent", paddingLeft: 4 }}
+            // 16 px: darunter zoomt das iPhone beim Antippen hinein und bleibt gezoomt
+            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontSize: 16, color: "#1a1c22", background: "transparent", paddingLeft: 4 }}
           />
-          <button onClick={send} disabled={busy} style={{ width: 34, height: 34, borderRadius: "50%", background: "#6366f1", color: "#fff", border: "none", display: "grid", placeItems: "center", fontSize: 15, boxShadow: "0 2px 8px rgba(99,102,241,.35)", opacity: busy ? 0.6 : 1 }}>↑</button>
+          <button onClick={send} disabled={busy} aria-label={t("Senden", "Send")} style={{ flex: "0 0 40px", width: 40, height: 40, borderRadius: "50%", background: "#6366f1", color: "#fff", border: "none", display: "grid", placeItems: "center", fontSize: 16, boxShadow: "0 2px 8px rgba(99,102,241,.35)", opacity: busy ? 0.6 : 1 }}>↑</button>
         </div>
       </div>
 
