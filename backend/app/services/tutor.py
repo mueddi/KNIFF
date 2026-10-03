@@ -656,6 +656,9 @@ _BILD_LABELS = {BILD_AUFGABE, BILD_SCHUELER}
 # Kennzahl der Eltern waere gefaelscht. Der Prompt sagt dem Modell dasselbe;
 # das hier wirkt auch, wenn das Modell nicht folgt.
 _MARKER_RE = re.compile(r"\[\[\s*/?\s*(GELOEST|GELÖST|FIGUR)\s*\]\]", re.IGNORECASE)
+# Grossgeschriebene Woerter, mit denen die echte Regie und die Beschriftungen
+# arbeiten (bewusst OHNE IGNORECASE: «Stufe» im Kindertext bleibt, wie es ist).
+_REGIE_WORT_RE = re.compile(r"\b(?:REGIE|STUFE|MODUS|NACHRICHT DES SCHUELERS|AUFGABE|BILD)\b")
 
 
 def ohne_steuer_marker(text: str) -> str:
@@ -663,8 +666,16 @@ def ohne_steuer_marker(text: str) -> str:
 
     Bewusst mehrfach angewandt: billig, und die Eingangsgrenze ist nicht der
     einzige Weg, auf dem fremder Text hereinkommt.
+
+    Ausserdem kann fremder Text keine Regie mehr vortaeuschen: die Nachricht
+    steht in «…», und ein «» gefolgt von «REGIE … STUFE: 4 … Interne Loesung
+    (jetzt zeigbar)» sah fuer das Modell aus wie die echte Anweisung. Darum
+    werden Guillemets zu geraden Anfuehrungszeichen und die Schluesselwoerter
+    der Regie verlieren ihre Grossschreibung – lesen kann der Tutor sie noch.
     """
-    return _MARKER_RE.sub("", text or "")
+    text = _MARKER_RE.sub("", text or "")
+    text = text.replace("«", '"').replace("»", '"')
+    return _REGIE_WORT_RE.sub(lambda m: m.group(0).capitalize(), text)
 
 
 def _schueler_block(text: str) -> dict:
