@@ -74,6 +74,19 @@ _ABLEHNUNG = re.compile(r"(?:\bnicht\b|\bnöd\b|\bnoed\b|\bnid\b|\bfalsch\b|\bke
 # Antwort «1» gewertet, also falsch – Stufe hoch und ein Fake-Versuch gezaehlt.
 _HILFE_WORT = re.compile(r"\b(?:tipp\w*|hinweis\w*|stufe|frage\w*|schritt\w*|hilfe|hilf)\b",
                          re.IGNORECASE)
+# Eine FRAGE ist keine Antwort: «warum ist x = 5?» nach einer Erklaerung des
+# Tutors galt als richtige Loesung – die Aufgabe war damit abgehakt, ohne dass
+# das Kind etwas geloest hatte. (Ein schlichtes «x = 5?» bleibt eine Antwort.)
+_FRAGE_WORT = re.compile(
+    r"\b(?:warum|wieso|weshalb|wie\s+kommst|wie\s+kommt|wie\s+bist|gesagt|versteh\w*|why|how\s+come)\b",
+    re.IGNORECASE)
+# Eine Zahl neben einem Rechen-WORT ist ein Vorhaben, kein Ergebnis: «durch 3
+# teilen?» galt als falsche Antwort «3» – Stufe hoch, Fake-Versuch gezaehlt.
+_OPERATION_WORT = re.compile(
+    r"\b(?:durch|mal|teil\w*|geteilt|dividier\w*|multiplizier\w*|addier\w*|subtrahier\w*|abzieh\w*|rechn\w*|nehm\w*)\b",
+    re.IGNORECASE)
+# Zahl, auch als Bruch («3/2», «5 / 6») – Kinder geben Brueche oft nackt an.
+_ZAHL = r"[-+]?[0-9]+(?:\.[0-9]+)?(?:\s*/\s*[0-9]+(?:\.[0-9]+)?)?"
 # «minus 5» ist -5: das Vorzeichen steht als WORT da, das Zeichen fehlt.
 _MINUS_WORT = re.compile(r"\bminus\s+(?=[0-9])", re.IGNORECASE)
 _PLUS_WORT = re.compile(r"\bplus\s+(?=[0-9])", re.IGNORECASE)
@@ -169,16 +182,27 @@ def _extract_candidates(message: str) -> list[str]:
     Erkennt 'x = 5', '= 5', ganze Gleichungen, oder eine allein stehende Zahl.
     """
     msg = _normalize(message)
+    if _FRAGE_WORT.search(msg):
+        return []  # Frage, keine Antwort (s. _FRAGE_WORT)
     msg = _MINUS_WORT.sub("-", msg)
     msg = _PLUS_WORT.sub("+", msg)
     msg = _chain_collapse(msg)
+    # «x = 5 oder x = 4?»: zwei verschiedene Werte fuer DIESELBE Variable sind
+    # keine Antwort, sondern eine Auswahl – galt vorher als richtig.
+    werte: dict[str, set[str]] = {}
+    for var, wert in re.findall(r"(?<![0-9a-zA-Z])([a-zA-Z])\s*=\s*(" + _ZAHL + r")(?![0-9A-Za-z(*^/.])", msg):
+        werte.setdefault(var, set()).add(re.sub(r"\s+", "", wert))
+    if any(len(v) > 1 for v in werte.values()):
+        return []
     cands: list[str] = []
     # eigenständige Gleichung im Text zuerst (damit '3x = 15' als Umformung zaehlt)
     if "=" in msg:
         cands.append(msg)
         # Mathe-Fragment um das '=' aus Prosa ziehen ("ich denke 3x = 15" -> "3x = 15"):
         # zusammenhaengende Mathe-Zeichen links/rechts, Prosa-Woerter (>1 Buchstabe) verwerfen
-        m = re.search(r"([0-9a-zA-Z+\-*/^().\s]+?)=\s*([0-9a-zA-Z+\-*/^().\s]+)", msg)
+        # [ \t] statt \s: ein Zeilenumbruch beendet das Fragment. Sonst wurde
+        # aus «3x + 5 = 20\n3x» der Kandidat «3x + 5 = 20 3x» (= 20·3x).
+        m = re.search(r"([0-9a-zA-Z+\-*/^(). \t]+?)=[ \t]*([0-9a-zA-Z+\-*/^(). \t]+)", msg)
         if m:
             lhs_tokens = m.group(1).split()
             # fuehrende Prosa-Woerter (mehrbuchstabig, ohne Ziffern/Operatoren) abwerfen
@@ -195,16 +219,19 @@ def _extract_candidates(message: str) -> list[str]:
                 if frag != msg:
                     cands.append(frag)
     # 'x = ...' (Variable NICHT von Ziffer/Buchstabe direkt gefolgt, sonst ist es ein Koeffizient)
-    for m in re.finditer(r"(?<![0-9a-zA-Z])[a-zA-Z]\s*=\s*[-+]?[0-9]+(?:\.[0-9]+)?(?:/[0-9]+)?", msg):
+    # Am Ende darf nichts mehr folgen, was zum Wert gehoert: aus «x = 5y/3»
+    # wurde sonst «x = 5» – und die richtige symbolische Antwort galt als falsch.
+    for m in re.finditer(r"(?<![0-9a-zA-Z])[a-zA-Z]\s*=\s*" + _ZAHL + r"(?![0-9A-Za-z(*^/.])", msg):
         cands.append(m.group(0))
-    # führendes '= 5'
-    m = re.search(r"^\s*=\s*([-+]?[0-9]+(?:\.[0-9]+)?)", msg)
+    # führendes '= 5' (auch '= 5/6')
+    m = re.search(r"^\s*=\s*(" + _ZAHL + r")(?![0-9A-Za-z(*^.])", msg)
     if m:
         cands.append(m.group(1))
     # eine einzelne Zahl – nur wenn die Nachricht kurz/antwortartig ist,
     # sonst matcht eine Zahl aus einer Prosa-Frage ("muss ich minus 5 rechnen?") faelschlich
-    nums = re.findall(r"[-+]?[0-9]+(?:\.[0-9]+)?", msg)
+    nums = re.findall(_ZAHL, msg)
     if (len(nums) == 1 and not cands and len(msg.split()) <= 3
+            and not _OPERATION_WORT.search(msg)
             # «5 stimmt nicht» / «nicht 5» / «ist 5 falsch?» nennen die Zahl,
             # um sie ABZULEHNEN. Ohne diese Sperre galt die Aufgabe als geloest.
             and not _ABLEHNUNG.search(msg)
@@ -397,8 +424,78 @@ def check_reply_math(text: str) -> list[tuple[str, str]]:
     return corrections
 
 
+def _vergleich(value, s, roh: str) -> str:
+    """Vergleicht einen Schuelerwert mit einer Loesung: "gleich" | "ungleich" | "unklar".
+
+    Gerundete Dezimalzahlen zaehlen, wenn sie auf so viele Stellen stimmen,
+    wie das Kind hingeschrieben hat («3.33» fuer 10/3, «28.27» fuer 9π) –
+    vorher galten sie als falsch. Eine ganze Zahl wird exakt verglichen
+    («3» fuer 10/3 ist falsch, nicht gerundet).
+    """
+    try:
+        if sp.simplify(value - s) == 0:
+            return "gleich"
+    except Exception:
+        return "unklar"
+    if not (getattr(value, "is_number", False) and getattr(s, "is_number", False)):
+        return "unklar"
+    try:
+        diff = abs(float(value) - float(s))
+    except Exception:
+        return "unklar"
+    stellen = re.findall(r"\d\.(\d+)", roh or "")
+    if stellen:
+        return "gleich" if diff <= 0.5 * 10 ** (-len(stellen[-1])) + 1e-12 else "ungleich"
+    return "ungleich"
+
+
+def _zeilen(message: str) -> list[str]:
+    """Teilt eine Antwort in Rechenschritte. Bewertet wird der letzte, der
+    etwas aussagt – so schreiben Kinder ihren Weg auf (und so liefert ihn die
+    Stift-Erkennung: eine Zeile pro Rechenzeile).
+
+    Auch «3x = 15 x = 5» in EINER Zeile sind zwei Schritte: nach einer
+    Gleichung beginnt mit «<Zahl> <Variable> =» die naechste. (Ohne «=» davor
+    bleibt «2 x = 6» eine Gleichung.)"""
+    msg = (message or "").replace("\r", "")
+    msg = re.sub(r"(=[^=\n]*?\d)[ \t]+(?=[A-Za-z][ \t]*=)", r"\1\n", msg)
+    teile = re.split(r"\n|;|→|=>|\balso\b", msg)
+    return [t.strip() for t in teile if t and t.strip()]
+
+
 def verify(exercise_expr: str | None, message: str) -> Verification:
-    """Prüft eine Schülerantwort gegen den Aufgaben-Ausdruck."""
+    """Prüft eine Schülerantwort gegen den Aufgaben-Ausdruck.
+
+    Grundsatz: lieber «unknown» als ein falsches «incorrect». Ein
+    «incorrect» zaehlt als Fehlversuch, hebt die Hilfe-Stufe und sperrt das
+    Abhaken – eine richtige Antwort darf nie so enden.
+    """
+    message = message or ""
+    if exercise_expr:
+        # «X = 5» ist dieselbe Antwort wie «x = 5», solange die Aufgabe kein
+        # grosses X kennt (vorher: «nicht pruefbar»).
+        eq = _split_equation(exercise_expr)
+        syms = {str(x) for x in (eq[0].free_symbols | eq[1].free_symbols)} if eq else set()
+        for v in syms:
+            if len(v) == 1 and v.islower() and v.upper() not in syms:
+                message = re.sub(rf"(?<![A-Za-z]){v.upper()}(?![A-Za-z])", v, message)
+        # «x = 5!» ist ein Ausrufezeichen, keine Fakultaet – ausser die Aufgabe
+        # rechnet selbst mit Fakultaeten.
+        if "!" not in exercise_expr:
+            message = re.sub(r"(?<=[0-9])!+", "", message)
+    zeilen = _zeilen(message)
+    if len(zeilen) <= 1:
+        return _verify_zeile(exercise_expr, message)
+    ergebnisse = [_verify_zeile(exercise_expr, z) for z in zeilen]
+    for v in reversed(ergebnisse):
+        if v.status != "unknown":
+            return v
+    # Nichts Entscheidendes: das letzte Ergebnis mit erkannter Antwort, sonst das letzte
+    return next((v for v in reversed(ergebnisse) if v.extracted), ergebnisse[-1])
+
+
+def _verify_zeile(exercise_expr: str | None, message: str) -> Verification:
+    """Prüft EINEN Rechenschritt gegen den Aufgaben-Ausdruck."""
     # Auch ohne pruefbare Aufgabe erkennen wir, OB eine Antwort versucht wurde –
     # sonst zaehlt die Hinweis-Leiter echte Versuche nicht (extracted -> intent 'attempt').
     _cands = _extract_candidates(message)
@@ -425,18 +522,19 @@ def verify(exercise_expr: str | None, message: str) -> Verification:
                     # «2+4 = 7» als richtig, weil die linke Seite 6 ergibt –
                     # und genau so schreiben Primarschueler ihre Antwort hin.
                     if ceq[1].is_number:
-                        values.append(ceq[1])
+                        values.append((ceq[1], cand.split("=")[-1]))
                 else:
                     try:
                         c = _parse(cand)
                         if c.is_number:
-                            values.append(c)
+                            values.append((c, cand))
                     except Exception:
                         pass
-            if any(sp.simplify(v - expected) == 0 for v in values):
+            urteile = [_vergleich(v, expected, roh) for v, roh in values]
+            if "gleich" in urteile:
                 return Verification("correct", "Zahlenwert stimmt", solution=sol_str,
                                     extracted=_attempted)
-            if values:
+            if urteile and all(u == "ungleich" for u in urteile):
                 return Verification("incorrect", "Zahlenwert stimmt nicht", solution=sol_str,
                                     extracted=_attempted)
             return Verification("unknown", "keine Zahl in der Antwort erkannt",
@@ -457,29 +555,42 @@ def verify(exercise_expr: str | None, message: str) -> Verification:
     if not candidates:
         return Verification("unknown", "keine Antwort im Text erkannt", solution=sol_str)
 
+    alle = lhs.free_symbols | rhs.free_symbols
+    # «incorrect» nur, wo die Pruefung sicher ist: eine Variable, Zahl-Loesung.
+    zahl_loesung = bool(sols) and all(getattr(x, "is_number", False) for x in sols)
     wiederholung: Verification | None = None
+    unklar: Verification | None = None
     for cand in candidates:
         # Fall A: der/die Schüler:in nennt einen Wert für die Variable
         val_eq = _split_equation(cand)
         if val_eq is not None:
             c_lhs, c_rhs = val_eq
+            c_syms = c_lhs.free_symbols | c_rhs.free_symbols
             # Fremd-Symbole (aus Prosa wie "ich glaube x = 5") -> kein sauberer Kandidat
-            if (c_lhs.free_symbols | c_rhs.free_symbols) - {sym}:
+            if c_syms - alle:
                 continue
-            # Endantwort 'x = wert' – oder gespiegelt 'wert = x' («5/2 = y»)?
-            value = None
-            if c_lhs == sym and c_rhs.is_number:
-                value = c_rhs
-            elif c_rhs == sym and c_lhs.is_number:
-                value = c_lhs
-            if value is not None:
-                for s in sols:
-                    try:
-                        if sp.simplify(value - s) == 0:
-                            return Verification("correct", "Endwert stimmt", sol_str, cand)
-                    except Exception:
-                        pass
-                return Verification("incorrect", "Endwert stimmt nicht", sol_str, cand)
+            # Reine Zahlengleichung («3*5+5 = 20») ist eine Probe, keine Antwort –
+            # galt vorher als «Umformung nicht aequivalent», also falsch.
+            if not c_syms:
+                continue
+            # Endantwort «v = wert» – oder gespiegelt «wert = v» («5/2 = y»).
+            # Der Wert darf auch symbolisch sein («x = 5y/3»), und das Kind
+            # darf nach einer anderen Variable der Aufgabe aufloesen.
+            ziel = wert = None
+            if c_lhs.is_Symbol and c_lhs not in c_rhs.free_symbols:
+                ziel, wert = c_lhs, c_rhs
+            elif c_rhs.is_Symbol and c_rhs not in c_lhs.free_symbols:
+                ziel, wert = c_rhs, c_lhs
+            if ziel is not None:
+                ziel_sols = sols if ziel == sym else _solutions(lhs, rhs, ziel)
+                urteile = [_vergleich(wert, z, cand) for z in ziel_sols]
+                if "gleich" in urteile:
+                    return Verification("correct", "Endwert stimmt", sol_str, cand)
+                if (ziel == sym and zahl_loesung and getattr(wert, "is_number", False)
+                        and urteile and all(u == "ungleich" for u in urteile)):
+                    return Verification("incorrect", "Endwert stimmt nicht", sol_str, cand)
+                unklar = unklar or Verification("unknown", "Endwert nicht sicher pruefbar", sol_str, cand)
+                continue
             # Reines Wiederholen der Aufgabe (gleiche Seiten, evtl. vertauscht) ist
             # KEIN eigener Schritt – sonst liesse sich die Stufe-4-Sperre durch
             # zweimaliges Abtippen der Aufgabe aushebeln.
@@ -504,19 +615,27 @@ def verify(exercise_expr: str | None, message: str) -> Verification:
                     return Verification("partial", "gültiger Umformungsschritt", sol_str, cand)
             except Exception:
                 pass
-            return Verification("incorrect", "Umformung nicht äquivalent", sol_str, cand)
+            if zahl_loesung and len(alle) == 1 and sym in c_syms:
+                return Verification("incorrect", "Umformung nicht äquivalent", sol_str, cand)
+            unklar = unklar or Verification("unknown", "Umformung nicht sicher pruefbar", sol_str, cand)
+            continue
 
         # Fall B: nackte Zahl -> gegen Lösungen prüfen
         try:
             val = _parse(cand)
-            if val.is_number:
-                for s in sols:
-                    if sp.simplify(val - s) == 0:
-                        return Verification("correct", "Zahl stimmt", sol_str, cand)
-                return Verification("incorrect", "Zahl stimmt nicht", sol_str, cand)
         except Exception:
             continue
+        if not getattr(val, "is_number", False):
+            continue
+        urteile = [_vergleich(val, z, cand) for z in sols]
+        if "gleich" in urteile:
+            return Verification("correct", "Zahl stimmt", sol_str, cand)
+        if zahl_loesung and urteile and all(u == "ungleich" for u in urteile):
+            return Verification("incorrect", "Zahl stimmt nicht", sol_str, cand)
+        unklar = unklar or Verification("unknown", "Zahl nicht sicher pruefbar", sol_str, cand)
 
     if wiederholung is not None:
         return wiederholung
+    if unklar is not None:
+        return unklar
     return Verification("unknown", "Antwort nicht eindeutig prüfbar", solution=sol_str)

@@ -27,6 +27,44 @@ def test_verify(expr, answer, expected):
     assert verify(expr, answer).status == expected
 
 
+# Bis 3.10. hiess es bei jeder dieser Antworten «falsch» (oder bei Fragen
+# «richtig») – und der Tutor bekam das als Pruefergebnis mit.
+@pytest.mark.parametrize(
+    "expr,answer,expected",
+    [
+        # Rechnung in mehreren Zeilen oder auf einer Zeile hintereinander
+        ("3x+5=20", "3x = 15\nx = 5", "correct"),
+        ("3x+5=20", "3x = 15 x = 5", "correct"),
+        ("3x+5=20", "3x = 15; x = 5", "correct"),
+        ("3x+5=20", "3x = 15\nx = 4", "incorrect"),
+        # Grossbuchstabe, Bruch, Ausrufezeichen, Komma
+        ("3x+5=20", "X = 5", "correct"),
+        ("2*x = 3", "x = 3/2", "correct"),
+        ("6*x = 5", "= 5/6", "correct"),
+        ("3x+5=20", "x = 5!", "correct"),
+        ("2*x = 3", "x = 1,5", "correct"),
+        # gerundete Antworten
+        ("3*x = 10", "x = 3.33", "correct"),
+        ("3*x = 10", "x = 3,3", "correct"),
+        ("3*x = 10", "x = 3.4", "incorrect"),
+        # symbolische Antwort: nicht mehr als «x = 5» gelesen
+        ("(5*y)/3 = x", "x = 5y/3", "correct"),
+        # Probe: 3*5+5 = 20 ist kein Wert fuer x
+        ("3x+5=20", "3*5+5 = 20", "unknown"),
+        # Fragen und Rechenwege sind keine Antworten
+        ("3x+5=20", "warum ist x = 5?", "unknown"),
+        ("3x+5=20", "x = 5 oder x = 4?", "unknown"),
+        ("3x+5=20", "durch 3 teilen?", "unknown"),
+        ("3x+5=20", "ich muss durch 3 teilen", "unknown"),
+        # unveraendert
+        ("3x+5=20", "x = 4", "incorrect"),
+        ("3x+5=20", "3x = 15", "partial"),
+    ],
+)
+def test_verify_schreibweisen_der_kinder(expr, answer, expected):
+    assert verify(expr, answer).status == expected
+
+
 def test_extract_expression_multiline():
     """Stift-/Foto-Eingaben sind oft mehrzeilig – die Gleichung muss trotzdem
     gefunden werden, sonst ist die Aufgabe nie als geloest erkennbar."""
@@ -218,9 +256,12 @@ def test_rechenbombe_haengt_die_anfrage_nicht_auf():
     """«x = 9^9^9^9» beschaeftigte SymPy praktisch endlos und blockierte damit
     eine Anfrage (nachgestellt: nach 8 s noch nicht zurueck). Normale Potenzen
     muessen weiter geprueft werden."""
-    assert verify("3x = 15", "x = 9^9^9^9").status == "incorrect"
+    # Nicht haengen, nicht «richtig». (Bis 3.10. hiess es «incorrect» nur, weil
+    # die Suche faelschlich «x = 9» aus «x = 9^9^9^9» las – genau dieser
+    # Praefix-Fehler machte auch «x = 5y/3» zu «x = 5». Jetzt: nicht pruefbar.)
+    assert verify("3x = 15", "x = 9^9^9^9").status == "unknown"
     assert extract_expression("Berechne 9^9^9^9") is None
-    assert verify("3x = 15", "x = 2^1000000").status == "incorrect"
+    assert verify("3x = 15", "x = 2^1000000").status == "unknown"
     # normale Potenzen bleiben pruefbar
     assert verify("x^2 = 4", "2").status == "correct"
     assert verify("2^10", "1024").status == "correct"
