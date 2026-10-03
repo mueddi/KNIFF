@@ -167,3 +167,25 @@ test("Zweimal Enter im selben Augenblick schickt nur eine Nachricht", async ({ p
   await expect(page.getByRole("button", { name: "Senden" })).toBeEnabled({ timeout: 15_000 });
   expect(anfragen).toBe(1);
 });
+
+test("Mehrzeilig: Shift+Enter macht eine neue Zeile, Enter schickt alles zusammen", async ({ page, request, fehler }) => {
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  await angemeldet(page, k);
+  await page.goto(`/app/lernen/${id}`);
+  let anfragen = [];
+  page.on("request", (r) => { if (r.url().endsWith("/chat") && r.method() === "POST") anfragen.push(r.postDataJSON().text); });
+  const eingabe = page.getByPlaceholder("Schreib deinen nächsten Schritt …");
+  await eingabe.click();
+  await eingabe.pressSequentially("Zuerst minus fünf");
+  await eingabe.press("Shift+Enter");
+  await eingabe.pressSequentially("dann durch drei");
+  expect(anfragen).toHaveLength(0);
+  // Enter waehrend eine Eingabehilfe (IME) noch tippt: nicht senden
+  await eingabe.evaluate((el) => el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", isComposing: true, bubbles: true })));
+  expect(anfragen).toHaveLength(0);
+  await eingabe.press("Enter");
+  await expect(eingabe).toHaveValue("");
+  expect(anfragen).toEqual(["Zuerst minus fünf\ndann durch drei"]);
+  await expect(page.getByText("dann durch drei")).toBeVisible();
+});

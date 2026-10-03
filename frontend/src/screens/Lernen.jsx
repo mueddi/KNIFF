@@ -420,6 +420,15 @@ export default function Lernen() {
     if (nearBottom()) scrollDown();
   }, [streaming, state]);
 
+  // Eingabefeld waechst mit dem Text (bis ~5 Zeilen, dann scrollt es) und
+  // schrumpft nach dem Senden wieder auf eine Zeile.
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${Math.min(el.scrollHeight, 118)}px`;
+  }, [input]);
+
   // Motivations-Zahlen (Serie/Woche) – einmal laden, nach jedem Lösen frisch
   useEffect(() => {
     api.get("/api/stats/mini").then(setStats).catch(() => setStats(null));
@@ -1025,21 +1034,29 @@ export default function Lernen() {
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*" onChange={attachPhoto} style={{ display: "none" }} />
-        <div style={{ display: "flex", alignItems: "center", gap: 2, border: "1px solid #d2d4dd", borderRadius: 26, padding: "4px 5px 4px 4px" }}>
+        <div style={{ display: "flex", alignItems: "flex-end", gap: 2, border: "1px solid #d2d4dd", borderRadius: 26, padding: "4px 5px 4px 4px" }}>
           <button type="button" onClick={() => !uploadBusy && fileRef.current?.click()} disabled={uploadBusy}
                   title={t("Foto anhängen", "Attach photo")} aria-label={t("Foto anhängen", "Attach photo")}
                   style={{ ...ICON_KNOPF, opacity: uploadBusy ? 0.5 : 1 }}>{uploadBusy ? "⏳" : "📷"}</button>
           <button type="button" onClick={() => setDrawOpen(true)}
                   title={t("Mit dem Stift schreiben oder zeichnen", "Write or draw with a pen")} aria-label={t("Mit dem Stift schreiben", "Write with a pen")}
                   style={ICON_KNOPF}>✍️</button>
-          <input
+          {/* Mehrzeilig: eine Rechnung schreibt man Schritt fuer Schritt.
+              Enter sendet, Shift+Enter macht eine neue Zeile; waehrend eine
+              Eingabehilfe (IME, Wortvorschlag) noch tippt, sendet Enter nicht. */}
+          <textarea
             ref={inputRef}
+            rows={1}
             value={input}
             onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && send()}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+              e.preventDefault();
+              send();
+            }}
             placeholder={t("Schreib deinen nächsten Schritt …", "Write your next step …")}
             // 16 px: darunter zoomt das iPhone beim Antippen hinein und bleibt gezoomt
-            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", fontSize: 16, color: "#1a1c22", background: "transparent", paddingLeft: 4 }}
+            style={{ flex: 1, minWidth: 0, border: "none", outline: "none", resize: "none", fontSize: 16, lineHeight: "22px", padding: "9px 0 9px 4px", maxHeight: 118, overflowY: "auto", fontFamily: "inherit", color: "#1a1c22", background: "transparent" }}
           />
           <button onClick={send} disabled={busy} aria-label={t("Senden", "Send")} style={{ flex: "0 0 40px", width: 40, height: 40, borderRadius: "50%", background: "#6366f1", color: "#fff", border: "none", display: "grid", placeItems: "center", fontSize: 16, boxShadow: "0 2px 8px rgba(99,102,241,.35)", opacity: busy ? 0.6 : 1 }}>↑</button>
         </div>
