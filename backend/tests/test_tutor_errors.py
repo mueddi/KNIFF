@@ -352,3 +352,47 @@ def test_stufe_steigt_bei_echter_antwort_weiterhin(client, monkeypatch):
 
     with SessionLocal() as db:
         assert db.get(Attempt, aid).hint_level >= 1
+
+
+def _chat_mit_antwort(client, monkeypatch, email, aufgabe, kind, antwort):
+    from app.services import tutor
+    from .test_library import register_pw
+
+    monkeypatch.setattr(tutor, "stream_reply", lambda *a, **k: iter([antwort]))
+    headers = register_pw(client, email)
+    ex = client.post("/api/exercises", headers=headers, json={"text": aufgabe}).json()
+    aid = client.post(f"/api/exercises/{ex['id']}/attempts", headers=headers).json()["attempt"]["id"]
+    with client.stream("POST", f"/api/attempts/{aid}/chat", headers=headers, json={"text": kind}) as r:
+        return "".join(r.iter_text())
+
+
+def test_zitierte_kinderrechnung_wird_nicht_korrigiert(client, monkeypatch):
+    """Produktion, Versuch 55: der Tutor zitierte die falsche Rechnung des
+    Kindes, und die App haengte «⚠️ Korrektur … → 615» an – die Loesung."""
+    from app.database import SessionLocal
+    from app.models import Alert
+    from app.services import alert as alert_service
+
+    alert_service._last_sent.clear()
+    reply = _chat_mit_antwort(client, monkeypatch, "zitat@test.ch", "Berechne 348 + 267",
+                              "348 + 267 = 605",
+                              "Du hast $348 + 267 = 605$ geschrieben. Schau dir die Einer nochmal an.")
+    assert "Korrektur" not in reply and "615" not in reply
+    with SessionLocal() as db:
+        assert not any(a.kind == "ki-qualitaet" for a in db.query(Alert).all())
+
+
+def test_korrektur_verraet_die_gesperrte_loesung_nicht(client, monkeypatch):
+    """Ein echter Rechenfehler des Tutors, dessen Korrektur die noch gesperrte
+    Loesung zeigen wuerde: nur Alarm an den Betreiber, nichts im Chat."""
+    from app.database import SessionLocal
+    from app.models import Alert
+    from app.services import alert as alert_service
+
+    alert_service._last_sent.clear()
+    reply = _chat_mit_antwort(client, monkeypatch, "verrat@test.ch", "Berechne 348 + 267",
+                              "hilfe", "Schau: $348 + 267 = 605$ – stimmt das?")
+    assert "Korrektur" not in reply and "615" not in reply
+    with SessionLocal() as db:
+        alarme = [a for a in db.query(Alert).all() if a.kind == "ki-qualitaet"]
+        assert alarme and "NICHT gezeigt" in alarme[0].detail

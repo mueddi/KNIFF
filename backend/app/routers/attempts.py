@@ -18,7 +18,7 @@ from ..schemas import (
 )
 from .. import i18n
 from ..services import aggregates, alert, quota, tutor, usage
-from ..services.sympy_verifier import check_reply_math, verify
+from ..services.sympy_verifier import check_reply_math, korrekturen_sortieren, verify
 
 router = APIRouter(prefix="/api/attempts", tags=["attempts"])
 
@@ -295,6 +295,8 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
     #   liefert der TUTOR die Loesung, das Kind hat nichts geloest. Genau so
     #   wurde eine Aufgabe abgehakt, sobald man den Knopf drueckte – waehrend
     #   die selbst gerechnete Loesung eine Runde davor offen blieb.
+    # Darf die Loesung in dieser Runde im Chat stehen? (wie in tutor._regie)
+    loesung_frei = already_solved or step.solved or step.allowed_stage >= 4 or step.permit_solution
     tutor_darf_abhaken = (not already_solved
                           and verification.status != "incorrect"
                           and step.intent != "plea")
@@ -320,19 +322,27 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                 yield rest
             # Nachrechnung der Tutor-Antwort: rein numerische Gleichungen per
             # SymPy pruefen; Fehler sichtbar korrigieren + Betreiber-Alarm.
+            # Zitate der Kinder-Rechnung sind kein Fehler, und eine Korrektur
+            # darf die gesperrte Loesung nicht verraten (korrekturen_sortieren).
             try:
-                fehler = check_reply_math("".join(parts))
+                fuers_kind, nur_alarm = korrekturen_sortieren(
+                    check_reply_math("".join(parts)),
+                    [h["text"] for h in history if h["role"] == "student"] + [ex_text or ""],
+                    text, verification.solution, loesung_frei)
             except Exception:
-                fehler = []
-            if fehler:
+                fuers_kind, nur_alarm = [], []
+            if fuers_kind:
                 korr = ("\n\n" + i18n.t(lang_local,
                                         "⚠️ Korrektur – oben hat sich ein Rechenfehler eingeschlichen: ",
                                         "⚠️ Correction – there's a calculation slip above: ")
-                        + "; ".join(f"${raw}$ → ${richtig}$" for raw, richtig in fehler))
+                        + "; ".join(f"${raw}$ → ${richtig}$" for raw, richtig in fuers_kind))
                 parts.append(korr)
                 yield korr
+            if fuers_kind or nur_alarm:
                 alert.notify("ki-qualitaet",
-                             f"Attempt {attempt_id_local}: " + "; ".join(f"{raw} -> {richtig}" for raw, richtig in fehler),
+                             f"Attempt {attempt_id_local}: "
+                             + "; ".join(f"{raw} -> {richtig}" for raw, richtig in fuers_kind + nur_alarm)
+                             + (" (Korrektur NICHT gezeigt – haette die Loesung verraten)" if nur_alarm else ""),
                              key=str(attempt_id_local))
         finally:
             # Auch bei Client-Abbruch (GeneratorExit) die bisherige Tutor-Antwort

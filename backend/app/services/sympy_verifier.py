@@ -475,6 +475,46 @@ def check_reply_math(text: str) -> list[tuple[str, str]]:
     return corrections
 
 
+def _formel_kern(s: str) -> str:
+    """Formel ohne Leerzeichen und in einheitlicher Schreibweise, zum Vergleichen."""
+    s = _latex_to_linear(s or "")
+    s = s.replace("×", "*").replace("·", "*").replace(":", "/").replace("÷", "/").replace("$", "")
+    return re.sub(r"\s+", "", s)
+
+
+def korrekturen_sortieren(fehler: list[tuple[str, str]], fremdtexte: list[str],
+                          kind_jetzt: str, loesung: str | None, freigegeben: bool
+                          ) -> tuple[list[tuple[str, str]], list[tuple[str, str]]]:
+    """Welche Korrekturen der Tutor-Antwort sieht das Kind, welche nur der Betreiber?
+
+    Liefert (fuers_kind, nur_alarm). Zwei Faelle aus der Produktion
+    (Versuch 55): der Tutor ZITIERTE die falsche Rechnung des Kindes
+    («Du hast $348 + 267 = 605$ geschrieben …») – genau so verlangt es der
+    Prompt –, und die App haengte «⚠️ Korrektur … → 615» an. Damit stand die
+    Loesung auf jeder Hilfe-Stufe im Chat.
+
+    * Zitat (die ganze Formel steht so beim Kind oder in der Aufgabe, oder ihr
+      falsches Resultat steht in der AKTUELLEN Kindernachricht): kein Fehler
+      des Tutors -> weder Korrektur noch Alarm. Nur die aktuelle Nachricht,
+      sonst gaelte «$2 \cdot 3 = 5$» zu «3x + 5 = 20» als Zitat der 5.
+    * Echter Rechenfehler, dessen Korrektur die noch gesperrte Loesung
+      verraten wuerde: nur Alarm an den Betreiber.
+    """
+    fremd_kern = [_formel_kern(t) for t in fremdtexte if t]
+    fuers_kind: list[tuple[str, str]] = []
+    nur_alarm: list[tuple[str, str]] = []
+    for raw, richtig in fehler:
+        kern = _formel_kern(raw)
+        resultat = kern.rsplit("=", 1)[-1]
+        if any(kern in f for f in fremd_kern) or re.search(
+                rf"(?<![0-9.]){re.escape(resultat)}(?![0-9.])", _formel_kern(kind_jetzt)):
+            continue
+        verraet = bool(loesung) and re.search(
+            rf"(?<![0-9./]){re.escape(_formel_kern(richtig))}(?![0-9./])", _formel_kern(loesung))
+        (nur_alarm if verraet and not freigegeben else fuers_kind).append((raw, richtig))
+    return fuers_kind, nur_alarm
+
+
 def _vergleich(value, s, roh: str) -> str:
     """Vergleicht einen Schuelerwert mit einer Loesung: "gleich" | "ungleich" | "unklar".
 
