@@ -260,6 +260,8 @@ _KEIN_BETTELN = re.compile(
     rf"|\bwie\s+(?:kommst|kommt|komme|komm|chunnsch|chunt|chum)\b"
     rf"|\bob\b[^.?!]{{0,25}}\b{_ZIEL}\b"
     rf"|{_ZIEL}\b[^.?!]{{0,20}}\b(?:stimmt|stimme|richtig|passt|korrekt)\b"
+    # «zeig mir, wie ich das löse» will den WEG lernen, nicht die Loesung
+    rf"|\bwie\s+(?:ich|man|mer)\b"
 )
 
 # Echte AUFFORDERUNG nach dem Ziel, nicht blosse Erwaehnung. Das ist die
@@ -273,6 +275,16 @@ _FORDERUNG = (
     rf"|\bich\s+(?:will|wott|möcht\w*|moecht\w*|brauch\w*)\b[^.?!]{{0,20}}\b{_ZIEL}\b"
     rf"|\b{_ZIEL}\s*(?:bitte|🙏)"
     rf"|\bl[oö]se?\w*\s+(?:es\s+|die\s+aufgabe\s+)?f[üu]e?r\s+mich\b"
+    # Bis 3.10. als blosses Reden gewertet («keine ungefragte Hilfe»):
+    # «kannst du es für mich lösen», «mach du es», «sag mir einfach was x ist»
+    rf"|\b(?:kannst|chasch|könntest|koenntest)\s+du\b[^.?!]{{0,20}}\b(?:es|das|sie|die\s+aufgabe)\s+"
+    rf"(?:f[üu]e?r\s+mich\s+)?(?:l[oö]e?sen|ausrechnen|vorrechnen|rechnen|machen)\b"
+    rf"|\b(?:machs?|rechnes?|l[oö]e?s)\s+(?:du|dus|dues)\b"
+    rf"|\b(?:sag|verrat|nenn)\w*\b[^.?!]{{0,15}}\bwas\s+[a-z]\s+(?:ist|isch|gibt)\b"
+    # Englisch: die App gibt es auch auf Englisch, erkannt wurde bisher nichts
+    rf"|\b(?:tell|give|show)\s+me\s+(?:the\s+)?(?:answer|solution|result)\b"
+    rf"|\bwhat(?:'?s|\s+is)\s+the\s+(?:answer|solution|result)\b"
+    rf"|\bjust\s+(?:the\s+)?(?:answer|solution)\b|\bsolve\s+it\s+for\s+me\b"
 )
 BETTEL_RE = re.compile(_FORDERUNG)
 
@@ -292,6 +304,10 @@ SIMPLER_PATTERNS = [
     r"nochmal erkl[aä]r", r"erkl[aä]r.{0,20}nochmal", r"zu schwierig", r"zu kompliziert",
     # «Erklaer's anders»-Chips: andere Darstellung derselben Stufe
     r"skizze", r"zeichn", r"alltag", r"beispiel aus", r"konkreten zahlen", r"zahlen statt",
+    # «ich check gar nix», «hä?», «???» – vorher blosses Reden
+    r"\bcheck\w*\b[^.?!]{0,15}\b(?:nix|nüt|nünt|nichts)\b",
+    r"^\s*(?:h[aä]+h?|hae+|hm+|wie bitte|was)\s*\?+\s*$", r"^\s*\?{2,}\s*$",
+    r"\bdo(?:n'?t|\s+not)\s+(?:understand|get\s+it)\b", r"\bconfus", r"explain\b[^.?!]{0,15}\b(?:again|differently|simpler)",
 ]
 HILFE_PATTERNS = [
     rf"weiss (es )?{_NICHT}", r"keine ahnung", rf"komm(e)? {_NICHT} weiter",
@@ -305,6 +321,10 @@ HILFE_PATTERNS = [
     r"ersten schritt", r"n(ae|ä)chste[nrs]? schritt", r"zeig.{0,20}schritt", r"hilf mir",
     r"\bchasch\b", rf"\bcha\w*\b[^.?!]{{0,20}}\b{_NICHT}\b", rf"kann (das |es |ich )?{_NICHT}",
     r"wo (fange|fang) ich an", r"wie (fange|fang) ich an", r"(muss|soll) ich zuerst",
+    r"wie (es|das|man)\b[^.?!]{0,15}\b(geht|gaht|macht|rechnet)", r"wie (ich|man|mer)\b[^.?!]{0,20}\b(l[oö]|rechn|mach|anfang)", r"(muss|soll) ich (jetzt |nun |da )?(machen|tun)",
+    # Englisch – vorher fiel «help» als «kein Hilferuf» durch
+    r"\bhelp\b", r"\bhint\b", r"\bstuck\b", r"\bidk\b", r"\bno idea\b",
+    r"\bi\s+do(?:n'?t|\s+not)\s+know\b", r"\bhow do i\b", r"\bwhat (now|next)\b",
 ]
 
 
@@ -365,8 +385,9 @@ def detect_intent(message: str, verification: Verification) -> str:
     if verification.status == "correct":
         return "correct"
     # «Ich bin fertig» ist weder Hilferuf noch Rechenversuch, sondern die
-    # Bitte, die Arbeit anzuschauen.
-    if _sagt_fertig(low):
+    # Bitte, die Arbeit anzuschauen. Steht dabei eine nachweislich falsche
+    # Antwort («x = 4, fertig»), ist es ein Versuch – vorher zaehlte er nicht.
+    if _sagt_fertig(low) and verification.status != "incorrect":
         return "fertig"
     if verification.status == "partial":
         return "step"
@@ -610,7 +631,9 @@ def _regie(step: LadderStep, verification: Verification, exercise_text: str,
     # Ohne maschinelle Pruefung ist der Tutor der einzige Richter darueber, ob
     # die Aufgabe fertig ist. Bei step/fertig steht die Frage schon im Kern,
     # bei einer Bettelei hat das Kind nichts geloest.
-    if (not step.solved and verification.status != "correct"
+    # Nicht bei «stimmt nicht»: dann hakt der Server ohnehin nicht ab, und die
+    # Zeile stand im Widerspruch zur Nachrechnung direkt darueber.
+    if (not step.solved and verification.status not in ("correct", "incorrect")
             and step.intent not in ("plea", "step", "fertig")):
         zeilen.append("- ZUM SCHLUSS ENTSCHEIDEN: hat der Schueler das Ergebnis selbst "
                       "hingeschrieben? Wenn ja, [[GELOEST]] als Allerletztes; wenn nein, weglassen.")

@@ -87,6 +87,30 @@ _OPERATION_WORT = re.compile(
     re.IGNORECASE)
 # Zahl, auch als Bruch («3/2», «5 / 6») – Kinder geben Brueche oft nackt an.
 _ZAHL = r"[-+]?[0-9]+(?:\.[0-9]+)?(?:\s*/\s*[0-9]+(?:\.[0-9]+)?)?"
+_ANTWORT_SATZ = re.compile(
+    r"\b(?:l(?:ö|oe|o)e?sung|ergebnis|resultat|antwort|answer|result)\s+(?:ist|isch|wäre|waere|lautet|is)\s+"
+    r"(" + _ZAHL + r")\s*[.!]*\s*$"
+    r"|\b(?:hab\w*|han|bekomm\w*|kriege?|krieg\w*|got)\b[^.?!0-9]{0,12}?(" + _ZAHL + r")\s+"
+    r"(?:raus\w*|heraus\w*|use\w*|as\s+(?:the\s+)?answer)\s*[.!]*\s*$"
+    r"|\b(?:komm\w*|chum\w*|chume|get)\s+(?:auf|uf|)\s*(" + _ZAHL + r")\s*[.!]*\s*$",
+    re.IGNORECASE)
+# Zahlwoerter, wenn sie ALS Antwort dastehen («fünf», «x ist fünf»). Nur in
+# dieser Form – «noch eins» oder «zwei Tipps» sind keine Antworten.
+_ZAHLWOERTER = {
+    "null": 0, "eins": 1, "zwei": 2, "drei": 3, "vier": 4, "fünf": 5, "fuenf": 5, "füf": 5,
+    "sechs": 6, "sieben": 7, "acht": 8, "neun": 9, "zehn": 10, "elf": 11, "zwölf": 12,
+    "zwoelf": 12, "zero": 0, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6,
+    "seven": 7, "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+}
+_ZAHLWORT_ANTWORT = re.compile(
+    r"^\s*(?:(?:minus\s+)?|(?:[a-z]|l(?:ö|oe|o)e?sung|ergebnis|resultat|antwort)\s*(?:=|ist|isch|is)\s*(?:minus\s+)?)"
+    r"(" + "|".join(sorted(_ZAHLWOERTER, key=len, reverse=True)) + r")\s*[.!?]*\s*$",
+    re.IGNORECASE)
+# «minus 5» ALLEIN zu «3x + 5 = 20» ist ein Vorhaben («ich rechne minus 5»),
+# keine Antwort −5 – die 5 steht ja in der Aufgabe. Stimmt −5 nicht, ist es
+# deshalb kein Fehlversuch, sondern ein Schritt. (Zu «3x = 15» bleibt
+# «minus 5» die Antwort −5.)
+_VORHABEN = re.compile(r"^\s*(?:minus|plus)\s+([0-9]+(?:[.,][0-9]+)?)\s*[?.!]*\s*$", re.IGNORECASE)
 # «minus 5» ist -5: das Vorzeichen steht als WORT da, das Zeichen fehlt.
 _MINUS_WORT = re.compile(r"\bminus\s+(?=[0-9])", re.IGNORECASE)
 _PLUS_WORT = re.compile(r"\bplus\s+(?=[0-9])", re.IGNORECASE)
@@ -239,6 +263,13 @@ def _extract_candidates(message: str) -> list[str]:
             # nicht als Antwort – galt sonst als falscher Rechenversuch.
             and not _HILFE_WORT.search(msg)):
         cands.append(nums[0])
+    # Ganze Antwort-Saetze: «die Lösung ist 5», «ich habe 5 rausbekommen»,
+    # «ich komme auf 5». Sie waren laenger als drei Woerter und galten deshalb
+    # als «keine Antwort» – das Kind hatte geloest, nichts wurde abgehakt.
+    if not cands and not _ABLEHNUNG.search(msg) and not _HILFE_WORT.search(msg):
+        m = _ANTWORT_SATZ.search(msg)
+        if m:
+            cands.append(next(g for g in m.groups() if g))
     return cands
 
 
@@ -498,6 +529,18 @@ def verify(exercise_expr: str | None, message: str) -> Verification:
         # rechnet selbst mit Fakultaeten.
         if "!" not in exercise_expr:
             message = re.sub(r"(?<=[0-9])!+", "", message)
+    wort = _ZAHLWORT_ANTWORT.match(message)
+    if wort:
+        message = (message[:wort.start(1)] + str(_ZAHLWOERTER[wort.group(1).lower()])
+                   + message[wort.end(1):])
+    vorhaben = _VORHABEN.match(message)
+    if vorhaben and exercise_expr and re.search(
+            rf"(?<![0-9.]){re.escape(vorhaben.group(1))}(?![0-9.])", exercise_expr):
+        v = _verify_zeile(exercise_expr, message)
+        if v.status == "incorrect":
+            return Verification("unknown", "Rechenvorhaben («minus 5»), keine Endantwort",
+                                v.solution, v.extracted)
+        return v
     zeilen = _zeilen(message)
     if len(zeilen) <= 1:
         return _verify_zeile(exercise_expr, message)
