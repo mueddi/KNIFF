@@ -194,9 +194,25 @@ https://claude.ai/code/artifact/67bdea5a-096e-439f-83f6-067727e5424b
   Gekritzel, das auch ein Mensch nicht lesen kann. Das eigentliche Loch: der
   erkannte Text ist vor dem Start kaum sichtbar, und bei «nichts erkannt» darf
   man trotzdem starten. Erst das ändern, dann mit zehn echten Fotos messen.
-* **Die Mathe-Prüfung urteilt selten:** 94 % der Antworten kommen als «nicht
-  prüfbar» zurück, weil nur 15 von 52 Aufgaben einen Prüfausdruck haben.
-  Symbolische Antworten (`x = 7y/3`) kann sie ohnehin nicht beurteilen.
+* **Die Mathe-Prüfung urteilt selten – mit Absicht vorsichtig:** 93 % der
+  Antworten kamen als «nicht prüfbar» zurück (Audit 3.10., alle 178
+  Tutor-Antworten), weil nur 16 von 56 Aufgaben einen Prüfausdruck haben.
+  Von den 6 «falsch»-Urteilen in der Produktion war KEINES belegt richtig –
+  5 trafen richtige Zwischenschritte. Seit Zweig `claude/chat-pruefung`
+  gilt: «falsch» nur bei ausdrücklicher Endantwort (`x = 4`, «die Lösung ist
+  4») oder bei reinen Rechnungen; eine nackte Zahl neben der Endlösung,
+  eine Operation («/2») oder eine Frage ist «nicht prüfbar», der Tutor
+  urteilt selbst. Symbolische Antworten (`x = 5y/3`) werden jetzt geprüft.
+  Lieber «nicht prüfbar» als ein falsches «falsch» – das zählt als
+  Fehlversuch und hebt die Hilfe-Stufe.
+* **Der Tutor-Prompt vom 7.9. hat noch kein echtes Kind gesehen** (letzte
+  Schülernachricht 5.9.). Das Audit beruht auf älteren Fassungen. Nächster
+  sinnvoller Schritt: die 44 gespeicherten Gespräche in der Vorschau gegen
+  den aktuellen Prompt nachspielen (Skript-Vorlage im Audit) und erneut lesen.
+* **Offen aus dem Audit (F4):** eigene Algebra-Fehler des Tutors mit
+  Buchstaben («$y = 3x + 1$» als Umformung von 3y + 1 = 3x, Versuch 14) und
+  falsche Geraden in Skizzen prüft niemand – die Nachrechnung kann nur
+  reine Zahlen-Gleichungen. 2 von 178 Antworten.
 * **Kosten – wo sie herkommen (gemessen 7.9., Produktion seit 11.7.):**
   Das Foto ist der teuerste Einzelposten: eine Erkennung (Sonnet, ~1700 Token
   Eingabe) kostet ~0.45 Rp., eine Chat-Runde mit Haiku und warmem Cache
