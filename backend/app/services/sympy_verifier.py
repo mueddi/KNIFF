@@ -273,6 +273,12 @@ def _arithmetic_expression(text: str) -> str | None:
     return frag if getattr(value, "is_number", False) else None
 
 
+_NUMMERIERUNG = re.compile(
+    r"^\s*(?:(?:aufgabe|aufg\.?|nr\.?|nummer|übung|uebung|exercise|task|problem)\s*\d+\s*[a-z]?\s*[:.)]?"
+    r"|\d{1,3}\s*[a-z]?\s*\)|\d{1,3}\s*\.(?=\s)|[a-h]\s*\))\s*",
+    re.IGNORECASE)
+
+
 def extract_expression(text: str) -> str | None:
     """Zieht aus einem Aufgabentext eine prüfbare Gleichung («Löse 3x = 15» -> «3x = 15»).
 
@@ -281,6 +287,11 @@ def extract_expression(text: str) -> str | None:
     """
     if not text:
         return None
+    # Nummerierung vorne weg («Aufgabe 3: …», «3) …», «3. …», «b) …»). Vorher
+    # wurde sie mitgerechnet: «Aufgabe 3: 2x+4=10» landete als «3/ 2x+4 = 10»
+    # in der Datenbank, «3. 2x + 4 = 10» als 6x + 4 = 10 – und die richtige
+    # Antwort x = 3 galt danach als falsch.
+    text = "\n".join(_NUMMERIERUNG.sub("", _NUMMERIERUNG.sub("", ln)) for ln in text.splitlines())
     if "=" not in text:
         # Reine Rechen-Aufgaben («2 + 4») sind auch ohne «=» pruefbar.
         for ln in [l for l in text.splitlines() if l.strip()] or [text]:
@@ -361,7 +372,11 @@ def extract_expression(text: str) -> str | None:
             # als «Aufgabe» in der DB («a = 5, b = 3. Berechne a + b» wurde zu
             # «a = 5. b», loesbar nach a als 5*b) und die richtige Antwort galt
             # danach als falsch – schlimmer als gar keine Pruefung.
-            if not prosa and syms and all(len(str(s)) == 1 for s in syms):
+            # «x = 3» allein ist eine Angabe, keine Aufgabe: als Pruefausdruck
+            # gespeichert galt danach jede andere Antwort als falsch (etwa bei
+            # «x = 3\nBerechne 2x + 1» die richtige 7).
+            angabe = ((lhs.is_Symbol and rhs.is_number) or (rhs.is_Symbol and lhs.is_number))
+            if not prosa and not angabe and syms and all(len(str(s)) == 1 for s in syms):
                 for s in sorted(syms, key=str):
                     sols = _solutions(lhs, rhs, s)
                     if sols and all(getattr(x, "is_number", False) for x in sols):

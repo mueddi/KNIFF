@@ -243,10 +243,13 @@ def create_exercise(payload: ExerciseCreate, user: User = Depends(require_studen
             topic_name = getattr(db.get(Topic, payload.topic_id), "name", None)
         text = _generate_task_text(db, user, topic_name)
         math_expr = None
-    # Ohne expliziten Ausdruck versuchen, eine pruefbare Gleichung aus dem Text
-    # zu ziehen («Löse 3x = 15» -> «3x = 15»); sonst waere die Aufgabe nie verifizierbar.
-    if math_expr is None:
-        math_expr = extract_expression(text)
+    # Pruefausdruck: zuerst aus dem Text, den das Kind bestaetigt hat («Löse
+    # 3x = 15» -> «3x = 15»). Ein mitgeschickter Ausdruck zaehlt nur, wenn der
+    # Text keinen hergibt UND er sich nachrechnen laesst. Vorher wurde er
+    # ungeprueft gespeichert – vom Foto kam so etwa «se2x+4=10» (aus «Löse
+    # 2x+4=10») oder «3x+5=203x» (zwei Zeilen zusammengeklebt), und die
+    # richtige Antwort galt danach als falsch.
+    math_expr = extract_expression(text) or (extract_expression(math_expr) if math_expr else None)
     ex = Exercise(
         user_id=user.id,
         text=text,

@@ -266,3 +266,64 @@ def test_rechenbombe_haengt_die_anfrage_nicht_auf():
     assert verify("x^2 = 4", "2").status == "correct"
     assert verify("2^10", "1024").status == "correct"
     assert extract_expression("Berechne 2^3 + 3^2") == "2^3 + 3^2"
+
+
+# Bis 3.10. rechnete die Nummerierung mit: «Aufgabe 3: 2x+4=10» wurde als
+# «3/ 2x+4 = 10» gespeichert, und die richtige Antwort x = 3 galt als falsch.
+@pytest.mark.parametrize(
+    "text,erwartet",
+    [
+        ("Aufgabe 3: 2x+4=10", "2x+4 = 10"),
+        ("3. 2x + 4 = 10", "2x + 4 = 10"),
+        ("3) 2x+4=10", "2x+4 = 10"),
+        ("b) 2x+4=10", "2x+4 = 10"),
+        ("Nr. 5: 3x+5=20", "3x+5 = 20"),
+        ("2) a) 3x = 9", "3x = 9"),
+        ("Aufgabe 12: Berechne 34 + 18", "34 + 18"),
+        ("1) 5 + 7", "5 + 7"),
+        # Dezimalzahlen vorne sind keine Nummer
+        ("3.5x = 7", "3.5x = 7"),
+        ("3.5 + 2", "3.5 + 2"),
+        # eine blosse Angabe ist keine Aufgabe
+        ("x = 3", None),
+        ("x = 3\nBerechne 2x + 1", None),
+        ("5 = x + 2", "5 = x + 2"),
+    ],
+)
+def test_extract_expression_nummerierung_und_angaben(text, erwartet):
+    assert extract_expression(text) == erwartet
+
+
+def test_aufgabe_mit_nummer_richtige_antwort_gilt(client):
+    from .conftest import register
+
+    h = register(client, "nummer@test.ch")
+    ex = client.post("/api/exercises", json={"text": "Aufgabe 3: Löse 2x + 4 = 10"}, headers=h).json()
+    assert verify(ex["math_expression"], "x = 3").status == "correct"
+
+
+def test_mitgeschickter_ausdruck_wird_nicht_ungeprueft_gespeichert(client):
+    """Vom Foto kam ein grob geratener Ausdruck mit («se2x+4=10»), der Server
+    speicherte ihn ungeprueft. Jetzt zaehlt der bestaetigte Text."""
+    from .conftest import register
+
+    h = register(client, "ausdruck@test.ch")
+    ex = client.post("/api/exercises", headers=h,
+                     json={"text": "Löse 2x+4=10", "math_expression": "se2x+4=10"}).json()
+    assert verify(ex["math_expression"], "x = 3").status == "correct"
+    # gibt der Text nichts her, gilt der Ausdruck nur, wenn er nachrechenbar ist
+    ex = client.post("/api/exercises", headers=h,
+                     json={"text": "(Aufgabe auf dem Foto)", "math_expression": "Dreiecka=6cm"}).json()
+    assert ex["math_expression"] is None
+    ex = client.post("/api/exercises", headers=h,
+                     json={"text": "(Aufgabe auf dem Foto)", "math_expression": "3*x+5=20"}).json()
+    assert verify(ex["math_expression"], "x = 5").status == "correct"
+
+
+def test_foto_erkennung_raet_keinen_unsinn():
+    from app.services.ocr import _guess_math_expression as g
+
+    assert g("Aufgabe 3: Löse 2x+4=10") == "2x+4 = 10"
+    assert g("3x + 5 = 20\n3x = 15") == "3x + 5 = 20"
+    assert g("[Figur: Dreieck a = 6 cm]") is None
+    assert g("a = 5, b = 3. Berechne a+b") is None

@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import io
 import logging
-import re
 from typing import Protocol
 
 from ..schemas import OcrResult
@@ -27,13 +26,13 @@ class OcrProvider(Protocol):
 
 
 def _guess_math_expression(text: str) -> str | None:
-    """Zieht einen plausiblen Mathe-Ausdruck (mit '=') aus erkanntem Text."""
-    flat = text.replace("\n", " ").replace("×", "*").replace("·", "*").replace("÷", "/")
-    # Zeile/Fragment mit Ziffern, Variable und Gleichheitszeichen
-    m = re.search(r"[0-9a-zA-Z][0-9a-zA-Z\s\+\-\*/\^\.\(\)]*=[\s]*[-+]?[0-9a-zA-Z][0-9a-zA-Z\s\+\-\*/\^\.\(\)]*", flat)
-    if m:
-        return re.sub(r"\s+", "", m.group(0))
-    return None
+    """Zieht einen nachrechenbaren Mathe-Ausdruck aus erkanntem Text.
+
+    Dieselbe Pruefung wie beim Tippen. Die fruehere eigene Suche klebte
+    Zeilen und Prosa zusammen («Löse 2x+4=10» -> «se2x+4=10»)."""
+    from .sympy_verifier import extract_expression
+
+    return extract_expression(text.replace("×", "*").replace("·", "*").replace("÷", "/"))
 
 
 class PytesseractOcr:
