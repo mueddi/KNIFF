@@ -311,6 +311,12 @@ export default function Lernen() {
   const [showTaskText, setShowTaskText] = useState(false); // Text unter Foto-Aufgabe
   const [showTaskImage, setShowTaskImage] = useState(true); // Aufgaben-Bild einklappbar (mehr Platz zum Chatten)
   const [stats, setStats] = useState(null); // {serie_tage, geloest_woche}
+  // Letzte Schuelernachricht, auf die auch nach langem Warten keine Antwort
+  // kam (Server abgestuerzt, Verbindung weg) – dann «Nochmal fragen» anbieten.
+  const [verwaist, setVerwaist] = useState(false);
+  // Sperre im selben Augenblick: busy (State) ist in einem zweiten Enter
+  // derselben JS-Runde noch der alte Wert – zwei Anfragen, doppelt bezahlt.
+  const busyRef = useRef(false);
   const inputRef = useRef(null);
   const chatRef = useRef(null);
   // Jeder Attempt-Wechsel/Send bekommt eine Token-Nummer; abgelaufene Antworten
@@ -342,14 +348,17 @@ export default function Lernen() {
   // «Diese Uebungssession gibt es nicht (mehr)» fuehren. Beim NACHLADEN nach
   // einer Antwort reichte bisher ein einziger wackliger Aufruf (Tunnel, 502),
   // um das ganze intakte Gespraech durch diese Sackgasse zu ersetzen.
-  const load = useCallback(async (token, erstesLaden = false) => {
+  // ``folgen``: danach ans Ende scrollen? Beim Oeffnen ja; nach einer Antwort
+  // nur, wenn das Kind unten war – wer hochgescrollt hat, um etwas
+  // nachzulesen, wurde sonst am Ende jeder Antwort nach unten gerissen.
+  const load = useCallback(async (token, erstesLaden = false, folgen = true) => {
     if (!attemptId) return null;
     try {
       const s = await api.get(`/api/attempts/${attemptId}`);
       if (token !== undefined && token !== reqToken.current) return null; // veraltet
       setState(s);
       setLoadError(false);
-      scrollDown();
+      if (folgen) scrollDown();
       return s;
     } catch {
       if (token !== undefined && token !== reqToken.current) return null;
@@ -367,6 +376,8 @@ export default function Lernen() {
     if (abortRef.current) abortRef.current.abort();
     setStreaming("");
     setBusy(false);
+    busyRef.current = false;
+    setVerwaist(false);
     setState(null);
     setLoadError(false);
     setPendingImage(null); // Anhang gehoert zur alten Aufgabe
@@ -382,16 +393,25 @@ export default function Lernen() {
       // seine Frage OHNE Antwort – der Server schreibt sie erst zu Ende. Das
       // sah aus, als haette der Tutor das Kind ignoriert: es fragte nochmal
       // (doppelte Kosten) oder gab auf. Steht zuletzt eine Schuelernachricht,
-      // laeuft die Antwort also noch: Punkte zeigen und kurz nachladen.
-      const letzte = s?.messages?.[s.messages.length - 1];
-      if (meins !== reqToken.current || letzte?.role !== "student") return;
+      // laeuft die Antwort also noch: Punkte zeigen und nachladen – alle 3 s,
+      // hoechstens 45 s lang (eine Antwort mit Foto und starkem Modell dauert
+      // laenger als die frueheren 4 s). Kommt nichts, ist sie verloren
+      // gegangen: dann «Nochmal fragen» statt Punkten, die einfach verschwinden.
+      const offen = (z) => !z || z.messages?.[z.messages.length - 1]?.role === "student";
+      if (meins !== reqToken.current || !offen(s)) return;
       setBusy(true);
-      nachschlag = setTimeout(() => {
-        if (meins !== reqToken.current) return;
-        load(meins).finally(() => {
-          if (meins === reqToken.current) setBusy(false);
-        });
-      }, 4000);
+      let runden = 0;
+      const nachschauen = () => {
+        nachschlag = setTimeout(async () => {
+          if (meins !== reqToken.current) return;
+          const neu = await load(meins, false, nearBottom());
+          if (meins !== reqToken.current) return;
+          if (offen(neu) && ++runden < 15) return nachschauen();
+          setBusy(false);
+          if (offen(neu)) setVerwaist(true);
+        }, 3000);
+      };
+      nachschauen();
     });
     return () => clearTimeout(nachschlag);
   }, [load]);
@@ -409,7 +429,9 @@ export default function Lernen() {
     // onClick={send} liefert ein Event-Objekt als erstes Argument – nur echte
     // Strings (Schnell-Antworten) zaehlen als Override.
     const text = (typeof overrideText === "string" ? overrideText : input).trim();
-    if ((!text && !pendingImage) || busy) return;
+    if ((!text && !pendingImage) || busy || busyRef.current) return;
+    busyRef.current = true;
+    setVerwaist(false);
     // Angehaengtes Bild (Zeichnung/Foto) mitschicken; ohne Text nur mit Platzhalter
     const img = pendingImage;
     const sendText = text || "(siehe Bild)";
@@ -435,6 +457,7 @@ export default function Lernen() {
     // abgebrochene Antwort). Dann darf der Entwurf nicht zurueck, sonst
     // schickt das Kind dieselbe Nachricht ein zweites Mal – und zahlt doppelt.
     let gestreamt = false;
+    let acc = ""; // bisher angekommener Antworttext (fuer einen Abbruch mittendrin)
     try {
       // Einmal automatisch nachfassen, statt das Kind zu bitten, die Nachricht
       // nochmal zu schicken. NUR wenn die Anfrage gar nicht erst rausging
@@ -488,7 +511,6 @@ export default function Lernen() {
       }
       const reader = res.body.getReader();
       const dec = new TextDecoder();
-      let acc = "";
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
@@ -500,7 +522,7 @@ export default function Lernen() {
       }
       if (myToken !== reqToken.current) return;
       const wasSolved = state?.attempt?.solved;
-      const fresh = await load(myToken); // echte Nachrichten + Leiter-Zustand nachladen
+      const fresh = await load(myToken, false, nearBottom()); // echte Nachrichten + Leiter-Zustand nachladen
       // ERST jetzt den Stream-Text loeschen: vorher verschwand die fertige
       // Antwort fuer die Dauer des Nachladens und die Tipp-Punkte kamen
       // zurueck – nach jeder einzelnen Nachricht ein sichtbares Flackern.
@@ -517,6 +539,34 @@ export default function Lernen() {
       }
     } catch (e) {
       if (controller.signal.aborted || myToken !== reqToken.current) return; // bewusst abgebrochen
+      if (gestreamt) {
+        // Abbruch MITTEN in der Antwort: der Server hat den angekommenen Teil
+        // gespeichert. Frueher verschwand er hier und nur «Ups» blieb stehen –
+        // bis zum naechsten Neuladen. Jetzt: nachladen; ist der Teil dort
+        // (noch) nicht zu sehen, ihn selbst stehen lassen.
+        const neu = await load(myToken, false, nearBottom());
+        if (myToken !== reqToken.current) return;
+        setStreaming("");
+        // Angekommen heisst: am Ende steht DIESE Frage und danach eine
+        // Tutor-Antwort. (Nur «zuletzt spricht der Tutor» galt auch fuer die
+        // Begruessung – dann verschwanden Frage und Antwortteil.)
+        const ms = neu?.messages || [];
+        const angekommen = ms.length >= 2 && ms[ms.length - 1].role === "tutor"
+          && ms[ms.length - 2].role === "student" && ms[ms.length - 2].text === sendText;
+        setState((s) => (s ? {
+          ...s,
+          messages: [
+            ...s.messages,
+            ...(angekommen ? [] : [
+              // load() hat die eigene Bubble ersetzt, falls es geklappt hat
+              ...(neu ? [{ id: `tmp-${Date.now()}`, role: "student", text: sendText, image_path: img }] : []),
+              { id: `teil-${Date.now()}`, role: "tutor", text: acc },
+            ]),
+            { id: `err-${Date.now()}`, role: "tutor", text: t("Die Verbindung ist abgebrochen – die Antwort oben ist vielleicht nicht vollständig. Schreib einfach weiter.", "The connection dropped – the answer above may be incomplete. Just keep writing.") },
+          ],
+        } : s));
+        return;
+      }
       setStreaming("");
       // Entwurf UND Zeichnung zurueckgeben: sonst stand «Versuch es nochmal»
       // da, waehrend beides geloescht war – erneutes Druecken tat gar nichts,
@@ -535,7 +585,10 @@ export default function Lernen() {
                    { id: `err-${Date.now()}`, role: "tutor", text: meldung }],
       } : s));
     } finally {
-      if (myToken === reqToken.current) setBusy(false);
+      if (myToken === reqToken.current) {
+        setBusy(false);
+        busyRef.current = false;
+      }
     }
   }
 
@@ -878,6 +931,17 @@ export default function Lernen() {
           }
           return out;
         })()}
+        {verwaist && !busy && !streaming && (
+          <div style={{ alignSelf: "flex-start", maxWidth: 420, background: "#fffaf0", border: "1px solid #f0e2c4", borderRadius: 16, padding: "12px 14px" }}>
+            <div style={{ fontSize: 13, color: "#6b7280", lineHeight: 1.5, marginBottom: 8 }}>
+              {t("Auf deine letzte Nachricht ist keine Antwort angekommen.", "No answer arrived for your last message.")}
+            </div>
+            <button onClick={() => send(t("Ich warte noch auf deine Antwort.", "I'm still waiting for your answer."))} className="btn-primary"
+                    style={{ border: "none", borderRadius: 10, padding: "9px 14px", fontSize: 13 }}>
+              {t("Nochmal fragen", "Ask again")}
+            </button>
+          </div>
+        )}
         {streaming && (
           <Bubble role="tutor">
             <TutorContent text={streaming} streaming />

@@ -1,4 +1,5 @@
 // Der Chat selbst: Formeln, Eingabe, Handy-Ansicht.
+import { execFileSync } from "node:child_process";
 import { angemeldet, expect, konto, test } from "./hilfen.mjs";
 
 const API = "http://localhost:8000";
@@ -61,4 +62,108 @@ test("Handy: Knöpfe in Fingergrösse, Eingabe 16 px, mit Tastatur bleibt Chat s
   const hoehe = await page.evaluate(() => document.querySelector(".chat-verlauf").clientHeight);
   console.log("sichtbare Chat-Hoehe bei 390x640:", hoehe);
   expect(hoehe).toBeGreaterThanOrEqual(200); // vorher 163 px (gemessen 3.10.)
+});
+
+// Schuelernachricht direkt in die Test-Datenbank: so sieht ein Gespraech aus,
+// dessen Antwort unterwegs verloren ging (Server abgestuerzt, Funkloch).
+function verwaisteFrage(attemptId, text) {
+  execFileSync(process.env.E2E_PYTHON || "python3", ["-c", `
+import sqlite3, datetime
+db = sqlite3.connect("e2e.db")
+db.execute("insert into messages (attempt_id, role, text, created_at) values (?, 'student', ?, ?)",
+           (${Number(attemptId)}, ${JSON.stringify(text)}, str(datetime.datetime.utcnow())))
+db.commit()
+`], { cwd: new URL("../../backend", import.meta.url).pathname });
+}
+
+async function gespraech(request, k, id, n) {
+  for (let i = 0; i < n; i++) {
+    const r = await request.post(`${API}/api/attempts/${id}/chat`, { headers: k.headers, data: { text: `x = ${i + 1}` } });
+    expect(r.status()).toBe(200);
+  }
+}
+
+test("Wer hochgescrollt hat, wird am Ende der Antwort nicht nach unten gerissen", async ({ page, request, fehler }) => {
+  await page.setViewportSize({ width: 1280, height: 700 });
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  await gespraech(request, k, id, 6);
+  await angemeldet(page, k);
+  await page.goto(`/app/lernen/${id}`);
+  await page.route("**/api/attempts/*/chat", async (route) => {
+    await new Promise((r) => setTimeout(r, 1500));
+    await route.continue();
+  });
+  const eingabe = page.getByPlaceholder("Schreib deinen nächsten Schritt …");
+  await eingabe.fill("x = 5");
+  await eingabe.press("Enter");
+  await page.waitForTimeout(300);
+  await page.evaluate(() => { document.querySelector(".chat-verlauf").scrollTop = 0; });
+  await expect(page.getByRole("button", { name: "Senden" })).toBeEnabled({ timeout: 15_000 });
+  await page.waitForTimeout(400);
+  expect(await page.evaluate(() => document.querySelector(".chat-verlauf").scrollTop)).toBeLessThan(60);
+});
+
+test("Antwort ging verloren: nach dem Warten «Nochmal fragen» statt stiller Punkte", async ({ page, request, fehler }) => {
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  verwaisteFrage(id, "Stimmt meine Lösung so?");
+  await angemeldet(page, k);
+  await page.clock.install();
+  await page.goto(`/app/lernen/${id}`);
+  await expect(page.getByText("Stimmt meine Lösung so?")).toBeVisible();
+  const hinweis = page.getByText("Auf deine letzte Nachricht ist keine Antwort angekommen.");
+  // 15 Runden à 3 s: die Uhr vorspulen, zwischendurch die Netz-Antworten
+  // abwarten (jede Runde wartet erst auf ihre Anfrage, dann auf den Wecker)
+  for (let i = 0; i < 80 && !(await hinweis.isVisible()); i++) {
+    await page.clock.fastForward(3100);
+    await page.waitForTimeout(200);
+  }
+  await expect(hinweis).toBeVisible();
+  await page.getByRole("button", { name: "Nochmal fragen" }).click();
+  await expect(hinweis).toHaveCount(0);
+  await expect(page.getByText("Ich warte noch auf deine Antwort.")).toBeVisible();
+});
+
+test("Verbindung bricht mitten in der Antwort ab: der angekommene Teil bleibt stehen", async ({ page, request, fehler }) => {
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  await angemeldet(page, k);
+  await page.addInitScript(() => {
+    const echt = window.fetch;
+    window.fetch = (url, opts) => {
+      if (!String(url).endsWith("/chat")) return echt(url, opts);
+      const body = new ReadableStream({
+        start(c) {
+          c.enqueue(new TextEncoder().encode("Erster Teil der Antwort"));
+          setTimeout(() => c.error(new TypeError("Verbindung weg")), 80);
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 200 }));
+    };
+  });
+  await page.goto(`/app/lernen/${id}`);
+  const eingabe = page.getByPlaceholder("Schreib deinen nächsten Schritt …");
+  await eingabe.fill("Ich glaube es ist fünf");
+  await eingabe.press("Enter");
+  await expect(page.getByText(/Die Verbindung ist abgebrochen/)).toBeVisible();
+  await expect(page.getByText("Erster Teil der Antwort")).toBeVisible();
+  await expect(page.getByText("Ich glaube es ist fünf")).toBeVisible(); // die eigene Frage bleibt
+  await expect(page.getByText(/Ups, da ging etwas schief/)).toHaveCount(0);
+});
+
+test("Zweimal Enter im selben Augenblick schickt nur eine Nachricht", async ({ page, request, fehler }) => {
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  await angemeldet(page, k);
+  await page.goto(`/app/lernen/${id}`);
+  let anfragen = 0;
+  page.on("request", (r) => { if (r.url().endsWith("/chat") && r.method() === "POST") anfragen += 1; });
+  const eingabe = page.getByPlaceholder("Schreib deinen nächsten Schritt …");
+  await eingabe.fill("x = 5");
+  await eingabe.evaluate((el) => {
+    for (let i = 0; i < 2; i++) el.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+  });
+  await expect(page.getByRole("button", { name: "Senden" })).toBeEnabled({ timeout: 15_000 });
+  expect(anfragen).toBe(1);
 });
