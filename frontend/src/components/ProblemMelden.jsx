@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useLang } from "../lib/i18n.jsx";
@@ -33,6 +33,13 @@ export default function ProblemDialog({ attemptId, imagePath, context, onClose }
   const [busy, setBusy] = useState(false);
   const [sent, setSent] = useState(false);
   const [error, setError] = useState(null);
+
+  // Escape schliesst das Fenster – wie jedes andere Fenster der App.
+  useEffect(() => {
+    const zu = (e) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", zu);
+    return () => window.removeEventListener("keydown", zu);
+  }, [onClose]);
 
   const KATEGORIEN = [
     ["erkennung", t("Foto oder Zeichnung wurde falsch gelesen", "Photo or drawing was read wrongly")],
@@ -69,7 +76,7 @@ export default function ProblemDialog({ attemptId, imagePath, context, onClose }
       <div onClick={(e) => e.stopPropagation()} className="popin" style={{ background: "#fff", borderRadius: 18, width: "min(520px, 100%)", maxHeight: "86vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(20,22,30,.25)" }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", borderBottom: "1px solid #eef0f3" }}>
           <div style={{ fontSize: 15, fontWeight: 800 }}>⚑ {t("Problem melden", "Report a problem")}</div>
-          <button onClick={onClose} style={{ border: "none", background: "transparent", fontSize: 18, color: "#9aa0ab", cursor: "pointer" }}>✕</button>
+          <button onClick={onClose} aria-label={t("Schliessen", "Close")} style={{ border: "none", background: "transparent", fontSize: 18, color: "#9aa0ab", cursor: "pointer", width: 40, height: 40 }}>✕</button>
         </div>
         <div style={{ padding: 18 }}>
           {sent ? (

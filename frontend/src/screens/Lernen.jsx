@@ -195,13 +195,13 @@ const ANDERS = [
 // 19×18 px grosse <span>, ohne Tastatur-Bedienung).
 const ICON_KNOPF = { flex: "0 0 40px", width: 40, height: 40, border: "none", background: "transparent", borderRadius: "50%", fontSize: 17, cursor: "pointer", display: "grid", placeItems: "center", padding: 0 };
 
-function QuickReplies({ solved, unlocked, onSend, onNew, onVariant, fertigMoeglich }) {
+function QuickReplies({ solved, unlocked, onSend, onNew, onVariant, fertigMoeglich, busy, variantBusy }) {
   const { t, lang } = useLang();
   const li = lang === "en" ? 1 : 0;
   const [andersOffen, setAndersOffen] = useState(false);
   const items = solved
     ? [
-        ...(onVariant ? [{ label: t("🔁 Nochmal so eine", "🔁 Another one like this"), act: onVariant, accent: true }] : []),
+        ...(onVariant ? [{ label: variantBusy ? t("⏳ erstelle Variante …", "⏳ creating variant …") : t("🔁 Nochmal so eine", "🔁 Another one like this"), act: onVariant, accent: true, aus: variantBusy }] : []),
         { label: t("🎯 Erklär mir den Weg nochmal", "🎯 Explain the path again"), act: () => onSend("Erklär mir den Lösungsweg nochmal Schritt für Schritt.") },
         { label: t("➕ Neue Aufgabe", "➕ New task"), act: onNew },
       ]
@@ -216,17 +216,26 @@ function QuickReplies({ solved, unlocked, onSend, onNew, onVariant, fertigMoegli
         { label: t("🤔 Ich verstehe es nicht", "🤔 I don't get it"), act: () => onSend("Ich verstehe es nicht.") },
         { label: t("💡 Gib mir einen Tipp", "💡 Give me a hint"), act: () => onSend("Gib mir bitte einen Tipp.") },
         { label: t("👣 Zeig mir den ersten Schritt", "👣 Show me the first step"), act: () => onSend("Zeig mir bitte den ersten Schritt.") },
-        ...(andersOffen
-          ? ANDERS.map((a) => ({ label: a.label[li], act: () => { setAndersOffen(false); onSend(a.text); } }))
-          : [{ label: t("🔄 Anders erklären", "🔄 Explain differently"), act: () => setAndersOffen(true) }]),
+        { label: t("🔄 Anders erklären", "🔄 Explain differently"), act: () => setAndersOffen(true) },
       ];
+  // «Anders erklären» klappt die drei Wege als EIGENE Reihe auf: vorher
+  // erschienen sie ganz rechts in der Chip-Leiste – auf dem Handy ausserhalb
+  // des Bildschirms (gemessen 3.10.: Leiste 1529 px breit auf 354 px).
+  const zeige = !solved && andersOffen
+    ? [{ label: t("← zurück", "← back"), act: () => setAndersOffen(false) },
+       ...ANDERS.map((a) => ({ label: a.label[li], act: () => { setAndersOffen(false); onSend(a.text); } }))]
+    : items;
   return (
     <div style={{ display: "flex", gap: 8, overflowX: "auto", padding: "0 2px 9px", WebkitOverflowScrolling: "touch" }}>
-      {items.map((it) => (
+      {zeige.map((it) => (
         <button
           key={it.label}
           onClick={it.act}
+          // waehrend der Tutor antwortet: stehen lassen, aber nicht klickbar –
+          // vorher verschwand die Reihe und die Eingabe sprang hoch
+          disabled={busy || it.aus}
           style={{
+            opacity: busy || it.aus ? 0.5 : 1,
             flex: "0 0 auto", minHeight: 40, borderRadius: 999, padding: "8px 14px", fontSize: 12.5, fontWeight: 600, whiteSpace: "nowrap",
             border: it.accent ? "1px solid #bfe3cb" : "1px solid #dcdff5",
             background: it.accent ? "#e8f6ec" : "#f8f8ff",
@@ -963,23 +972,18 @@ export default function Lernen() {
         )}
         {attempt.solved && !busy && !streaming && (
           <div className="solved-banner" style={{ alignSelf: "center", display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", justifyContent: "center", background: "#e8f6ec", border: "1px solid #cde7d6", color: "#1a7f3c", borderRadius: 999, padding: "8px 18px", fontSize: 13, fontWeight: 700 }}>
+            {/* Nur die Freude: «Nochmal so eine» und «Neue Aufgabe» stehen in
+                den Schnellantworten, «Nochmal üben» oben – vorher stand jede
+                Aktion zwei- bis dreimal auf dem Bildschirm. */}
             {t("🎉 Aufgabe gelöst – stark!", "🎉 Task solved – great job!")}
-            <button onClick={makeVariant} disabled={variantBusy} style={{ border: "none", background: "transparent", color: "#1a7f3c", fontWeight: 700, fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: 0 }}>
-              {variantBusy ? t("erstelle Variante …", "creating variant …") : t("🔁 nochmal so eine", "🔁 another one like this")}
-            </button>
-            <button onClick={retry} style={{ border: "none", background: "transparent", color: "#1a7f3c", fontWeight: 700, fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: 0 }}>
-              {t("nochmal üben", "practice again")}
-            </button>
-            <button onClick={() => shell.openNewTask(exercise.topic_id ?? undefined)} style={{ border: "none", background: "transparent", color: "#1a7f3c", fontWeight: 700, fontSize: 13, textDecoration: "underline", cursor: "pointer", padding: 0 }}>
-              {t("neue Aufgabe", "new task")}
-            </button>
           </div>
         )}
       </div>
 
       <div className="chat-eingabe-bereich" style={{ padding: "12px 18px calc(14px + env(safe-area-inset-bottom))", background: "#fff", borderTop: "1px solid #eef0f3" }}>
-        {!busy && (
-          <QuickReplies
+        <QuickReplies
+            busy={busy}
+            variantBusy={variantBusy}
             solved={attempt.solved}
             unlocked={attempt.hint_level >= 3 && attempt.own_attempts >= 2}
             onSend={(t) => send(t)}
@@ -990,7 +994,6 @@ export default function Lernen() {
             // ueberhaupt eine Aufgabe angeschaut war.
             fertigMoeglich={attempt.own_attempts >= 1}
           />
-        )}
         {inputLooksMathy && (
           <div style={{ display: "flex", alignItems: "baseline", gap: 8, background: "#f8f8ff", border: "1px solid #e0e2fb", borderRadius: 12, padding: "7px 14px", marginBottom: 8, fontSize: 14, overflowX: "auto" }}>
             <span style={{ fontSize: 10.5, fontWeight: 800, letterSpacing: ".06em", color: "#9aa0ab", flex: "0 0 auto" }}>{t("SO SIEHT'S AUS", "THIS IS HOW IT LOOKS")}</span>

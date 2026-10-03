@@ -189,3 +189,25 @@ test("Mehrzeilig: Shift+Enter macht eine neue Zeile, Enter schickt alles zusamme
   expect(anfragen).toEqual(["Zuerst minus fünf\ndann durch drei"]);
   await expect(page.getByText("dann durch drei")).toBeVisible();
 });
+
+test("Handy: «Anders erklären» zeigt die Wege sichtbar, «Problem melden» schliesst mit Escape", async ({ page, request, fehler }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const k = await konto(request);
+  const id = await aufgabe(request, k);
+  await angemeldet(page, k);
+  await page.goto(`/app/lernen/${id}`);
+  await page.getByRole("button", { name: "🔄 Anders erklären" }).click();
+  const zurueck = page.getByRole("button", { name: "← zurück" });
+  await expect(zurueck).toBeVisible();
+  // die Wege stehen jetzt vorne in der Reihe, nicht rechts ausserhalb des Bildschirms
+  const knoepfe = zurueck.locator("xpath=..").getByRole("button");
+  const zweiter = await knoepfe.nth(1).boundingBox();
+  expect(zweiter.x + zweiter.width).toBeLessThanOrEqual(390);
+  await zurueck.click();
+  await expect(page.getByRole("button", { name: "🔄 Anders erklären" })).toBeVisible();
+
+  await page.getByRole("button", { name: /Problem melden/ }).click();
+  await expect(page.getByText("Was ist passiert?", { exact: false })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByText("Was ist passiert?", { exact: false })).toHaveCount(0);
+});

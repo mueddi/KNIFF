@@ -263,11 +263,11 @@ export default function DrawPad({ onResult, onClose }) {
               onClick={toggleGross}
               title={gross ? t("Kleiner", "Smaller") : t("Grösser", "Bigger")}
               aria-label={gross ? t("Fenster verkleinern", "Shrink window") : t("Fenster vergrössern", "Enlarge window")}
-              style={{ border: "1px solid #e7e8ee", background: "#fff", borderRadius: 9, padding: "6px 10px", fontSize: 14, color: "#6b7280", cursor: "pointer", lineHeight: 1 }}
+              style={{ border: "1px solid #e7e8ee", background: "#fff", borderRadius: 9, minWidth: 40, minHeight: 40, padding: "6px 10px", fontSize: 14, color: "#6b7280", cursor: "pointer", lineHeight: 1 }}
             >
               {gross ? "⤡" : "⤢"}
             </button>
-            <button onClick={onClose} aria-label={t("Schliessen", "Close")} style={{ border: "none", background: "transparent", fontSize: 18, color: "#9aa0ab", cursor: "pointer" }}>✕</button>
+            <button onClick={onClose} aria-label={t("Schliessen", "Close")} style={{ border: "none", background: "transparent", fontSize: 18, color: "#9aa0ab", cursor: "pointer", width: 40, height: 40 }}>✕</button>
           </div>
         </div>
 
@@ -295,7 +295,7 @@ export default function DrawPad({ onResult, onClose }) {
           <div style={{ margin: "10px 18px 0", fontSize: 13, background: "#fdecec", color: "#c0392b", border: "1px solid #f5cccc", borderRadius: 10, padding: "8px 12px" }}>{error}</div>
         )}
 
-        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 18px" }}>
+        <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, padding: "12px 14px" }}>
           <button onClick={undo} disabled={!hasInk} style={{ ...btn, opacity: hasInk ? 1 : 0.5 }}>↩ {t("Rückgängig", "Undo")}</button>
           <button onClick={clearAll} disabled={!hasInk} style={{ ...btn, opacity: hasInk ? 1 : 0.5 }}>🗑 {t("Löschen", "Clear")}</button>
           <button
