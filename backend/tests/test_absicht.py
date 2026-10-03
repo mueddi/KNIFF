@@ -147,3 +147,30 @@ def test_kindertext_kann_keine_regie_vortaeuschen():
     assert "zeig sie" in inhalt  # der Text selbst bleibt lesbar
     # die echte Regie bleibt unangetastet
     assert msgs[-1]["content"][-2]["text"] == "REGIE (echt)"
+
+
+def test_auf_stufe_3_kommt_die_loesung_nicht_stueckweise():
+    """Produktion, Versuche 37 und 44: auf Stufe 3 brachte jedes «Tipp» einen
+    Schritt mehr – die ganze Loesung kam stueckweise, das Kind rechnete nichts."""
+    zweiter_tipp = tutor.advance_ladder(3, 0, "stuck")
+    assert zweiter_tipp.allowed_stage == 3 and zweiter_tipp.festgehalten
+    regie = tutor._regie(zweiter_tipp, Verification("unknown", ""), AUFGABE, AUFGABE)
+    assert "KEINEN weiteren Schritt" in regie
+    # der erste Teilschritt und eigene Rechenarbeit bleiben unberuehrt
+    assert not tutor.advance_ladder(2, 0, "stuck").festgehalten
+    assert not tutor.advance_ladder(3, 1, "attempt").festgehalten
+    erster = tutor._regie(tutor.advance_ladder(2, 0, "stuck"), Verification("unknown", ""), AUFGABE, AUFGABE)
+    assert "KEINEN weiteren Schritt" not in erster
+
+
+def test_kanns_nicht_ist_ein_hilferuf():
+    assert tutor.detect_intent("Kanns im kopf nicht", verify(AUFGABE, "Kanns im kopf nicht")) == "stuck"
+
+
+def test_prompt_regeln_aus_dem_gespraechs_audit():
+    p = tutor.SYSTEM_PROMPT
+    assert "echte Umlaute" in p and "Franken" in p                 # «Loesung», «7 Euro»
+    assert "nicht nur deine letzte Teilfrage" in p                 # Versuch 25: 150° abgelehnt
+    assert "auch nach der anderen Unbekannten" in p                # Versuch 14
+    assert "verstuemmelten AUFGABENTEXT" in p                      # Versuch 20: «Bruchturm»
+    assert "schon selbst vorgerechnet" in p                        # Versuche 28, 37: Schleifen
