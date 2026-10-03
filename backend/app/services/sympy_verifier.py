@@ -87,10 +87,14 @@ _OPERATION_WORT = re.compile(
     re.IGNORECASE)
 # Zahl, auch als Bruch («3/2», «5 / 6») – Kinder geben Brueche oft nackt an.
 _ZAHL = r"[-+]?[0-9]+(?:\.[0-9]+)?(?:\s*/\s*[0-9]+(?:\.[0-9]+)?)?"
+# «die Lösung ist 4» ist ausdruecklich die ENDantwort (wie «x = 4») – sie
+# darf «falsch» heissen. Eine nackte Zahl dagegen nicht (s. _verify_zeile).
+_ENDANTWORT = (r"\b(?:l(?:ö|oe|o)e?sung|ergebnis|resultat|antwort|answer|result)\s+(?:ist|isch|wäre|waere|lautet|is)\s+"
+               r"(" + _ZAHL + r")\s*[.!]*\s*$")
+_ENDANTWORT_RE = re.compile(_ENDANTWORT, re.IGNORECASE)
 _ANTWORT_SATZ = re.compile(
-    r"\b(?:l(?:ö|oe|o)e?sung|ergebnis|resultat|antwort|answer|result)\s+(?:ist|isch|wäre|waere|lautet|is)\s+"
-    r"(" + _ZAHL + r")\s*[.!]*\s*$"
-    r"|\b(?:hab\w*|han|bekomm\w*|kriege?|krieg\w*|got)\b[^.?!0-9]{0,12}?(" + _ZAHL + r")\s+"
+    _ENDANTWORT
+    + r"|\b(?:hab\w*|han|bekomm\w*|kriege?|krieg\w*|got)\b[^.?!0-9]{0,12}?(" + _ZAHL + r")\s+"
     r"(?:raus\w*|heraus\w*|use\w*|as\s+(?:the\s+)?answer)\s*[.!]*\s*$"
     r"|\b(?:komm\w*|chum\w*|chume|get)\s+(?:auf|uf|)\s*(" + _ZAHL + r")\s*[.!]*\s*$",
     re.IGNORECASE)
@@ -106,11 +110,12 @@ _ZAHLWORT_ANTWORT = re.compile(
     r"^\s*(?:(?:minus\s+)?|(?:[a-z]|l(?:ö|oe|o)e?sung|ergebnis|resultat|antwort)\s*(?:=|ist|isch|is)\s*(?:minus\s+)?)"
     r"(" + "|".join(sorted(_ZAHLWOERTER, key=len, reverse=True)) + r")\s*[.!?]*\s*$",
     re.IGNORECASE)
-# «minus 5» ALLEIN zu «3x + 5 = 20» ist ein Vorhaben («ich rechne minus 5»),
-# keine Antwort −5 – die 5 steht ja in der Aufgabe. Stimmt −5 nicht, ist es
-# deshalb kein Fehlversuch, sondern ein Schritt. (Zu «3x = 15» bleibt
-# «minus 5» die Antwort −5.)
-_VORHABEN = re.compile(r"^\s*(?:minus|plus)\s+([0-9]+(?:[.,][0-9]+)?)\s*[?.!]*\s*$", re.IGNORECASE)
+# Eine blosse Rechenoperation («/2», «:3», «x2», «mal 3», «durch 2») kuendigt
+# einen Schritt an – sie ist keine Antwort. Galt in der Produktion als falsch
+# (Versuch 9, «/2»), mit rotem «noch nicht» unter einem richtigen Schritt.
+_OPERATION_ALLEIN = re.compile(
+    r"^\s*(?:[:/*×·÷]|x(?=\s*[0-9])|mal\b|durch\b|geteilt\s+durch\b|times\b|divided\s+by\b)"
+    r"\s*[0-9]+(?:[.,][0-9]+)?\s*[?.!]*\s*$", re.IGNORECASE)
 # «minus 5» ist -5: das Vorzeichen steht als WORT da, das Zeichen fehlt.
 _MINUS_WORT = re.compile(r"\bminus\s+(?=[0-9])", re.IGNORECASE)
 _PLUS_WORT = re.compile(r"\bplus\s+(?=[0-9])", re.IGNORECASE)
@@ -533,17 +538,16 @@ def verify(exercise_expr: str | None, message: str) -> Verification:
     if wort:
         message = (message[:wort.start(1)] + str(_ZAHLWOERTER[wort.group(1).lower()])
                    + message[wort.end(1):])
-    vorhaben = _VORHABEN.match(message)
-    if vorhaben and exercise_expr and re.search(
-            rf"(?<![0-9.]){re.escape(vorhaben.group(1))}(?![0-9.])", exercise_expr):
-        v = _verify_zeile(exercise_expr, message)
-        if v.status == "incorrect":
-            return Verification("unknown", "Rechenvorhaben («minus 5»), keine Endantwort",
-                                v.solution, v.extracted)
-        return v
+    if _OPERATION_ALLEIN.match(message):
+        return Verification("unknown", "Rechenoperation angekuendigt, keine Antwort",
+                            _verify_zeile(exercise_expr, "").solution, message.strip())
     zeilen = _zeilen(message)
     if len(zeilen) <= 1:
-        return _verify_zeile(exercise_expr, message)
+        v = _verify_zeile(exercise_expr, message)
+        if (v.status == "unknown" and v.detail.startswith("Zahl ist nicht die Endloesung")
+                and _ENDANTWORT_RE.search(_normalize(message))):
+            return Verification("incorrect", "Endantwort stimmt nicht", v.solution, v.extracted)
+        return v
     ergebnisse = [_verify_zeile(exercise_expr, z) for z in zeilen]
     for v in reversed(ergebnisse):
         if v.status != "unknown":
@@ -688,9 +692,16 @@ def _verify_zeile(exercise_expr: str | None, message: str) -> Verification:
         urteile = [_vergleich(val, z, cand) for z in sols]
         if "gleich" in urteile:
             return Verification("correct", "Zahl stimmt", sol_str, cand)
-        if zahl_loesung and urteile and all(u == "ungleich" for u in urteile):
-            return Verification("incorrect", "Zahl stimmt nicht", sol_str, cand)
-        unklar = unklar or Verification("unknown", "Zahl nicht sicher pruefbar", sol_str, cand)
+        # Eine nackte Zahl, die nicht die Endloesung ist, kann genauso gut ein
+        # richtiges Zwischenergebnis sein («7» bei 2 + 5 = 3x, «15» bei
+        # 3x + 5 = 20). In der Produktion waren 5 von 6 «falsch»-Urteilen
+        # genau solche Faelle – das Kind sah ein rotes «noch nicht» unter
+        # einem richtigen Schritt, die Hilfe-Stufe stieg, einmal bis zur
+        # Freigabe der ganzen Loesung. Darum: der Tutor urteilt selbst (er
+        # kennt die Loesung als Kompass). «x = 4» bleibt falsch.
+        unklar = unklar or Verification(
+            "unknown", "Zahl ist nicht die Endloesung – Zwischenergebnis oder falsch, selbst beurteilen",
+            sol_str, cand)
 
     if wiederholung is not None:
         return wiederholung

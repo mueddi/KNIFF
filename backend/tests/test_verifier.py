@@ -217,7 +217,10 @@ def test_zahl_in_einer_ablehnung_ist_keine_antwort():
 
 def test_vorzeichen_als_wort():
     """«minus 5» wurde als +5 gewertet – das Wort stand da, das Zeichen nicht."""
-    assert verify("3x = 15", "minus 5").status == "incorrect"
+    # Seit 3.10. heisst eine nackte Zahl neben der Endloesung nicht mehr
+    # «falsch», sondern «nicht pruefbar» (Zwischenergebnis moeglich, siehe
+    # test_absicht.py). Worum es hier geht, bleibt: −5 ist nicht +5.
+    assert verify("3x = 15", "minus 5").status != "correct"
     assert verify("x + 5 = 3", "minus 2").status == "correct"
 
 

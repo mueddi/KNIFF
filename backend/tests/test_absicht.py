@@ -43,9 +43,37 @@ def test_antwort_saetze(antwort, erwartet):
     assert verify(AUFGABE, antwort).status == erwartet
 
 
-def test_minus_ist_antwort_wenn_die_zahl_nicht_in_der_aufgabe_steht():
-    assert verify("3x = 15", "minus 5").status == "incorrect"
+def test_minus_wort_ist_minus():
     assert verify("x + 5 = 0", "minus 5").status == "correct"
+
+
+# Aus den echten Gespraechen (Audit 3.10.): 5 von 6 «falsch»-Urteilen in der
+# Produktion trafen richtige Zwischenschritte oder angekuendigte Operationen.
+@pytest.mark.parametrize(
+    "aufgabe,antwort",
+    [
+        ("2 + 5 = 3x", "7"),     # Versuch 8, Nachricht 69 – der Tutor schrieb «Genau!»
+        ("2x = 3", "/2"),        # Versuch 9, Nachricht 80
+        ("3x/2 = 5", "x2"),      # Versuch 12, Nachricht 97
+        ("2x = 3", "-5"),
+        ("2x = 3", ":2"),
+        ("3x + 5 = 20", "15"),
+        ("3x + 5 = 20", "mal 3"),
+        ("3x + 5 = 20", "durch 3"),
+    ],
+)
+def test_zwischenschritt_ist_nicht_falsch(aufgabe, antwort):
+    v = verify(aufgabe, antwort)
+    assert v.status == "unknown"
+    assert v.extracted       # zaehlt als eigener Schritt (Absicht «step»)
+    assert v.solution        # der Tutor bekommt die Loesung als Kompass
+
+
+def test_endantwort_darf_weiter_falsch_heissen():
+    assert verify("3x + 5 = 20", "x = 4").status == "incorrect"
+    assert verify("3x + 5 = 20", "die Lösung ist 4").status == "incorrect"
+    assert verify("2 + 4", "7").status == "incorrect"   # reine Rechnung: Zahl IST die Antwort
+    assert verify("3x + 5 = 20", "5").status == "correct"
 
 
 @pytest.mark.parametrize(
