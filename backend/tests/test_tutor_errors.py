@@ -396,3 +396,36 @@ def test_korrektur_verraet_die_gesperrte_loesung_nicht(client, monkeypatch):
     with SessionLocal() as db:
         alarme = [a for a in db.query(Alert).all() if a.kind == "ki-qualitaet"]
         assert alarme and "NICHT gezeigt" in alarme[0].detail
+
+
+def test_leere_antwort_wird_ehrlich_gemeldet(client, monkeypatch):
+    """Produktion 19.–26.7.: viermal kam vom Modell kein Text (Denken frass das
+    Budget). Gespeichert wurde still der Ersatzsatz «Erzähl mir, wie du an die
+    Aufgabe rangehst.» – als echte Antwort mit Hilfe-Stufe, abgebucht, ohne
+    Alarm. Jetzt: ehrliche Meldung, Stufe bleibt, nichts abgebucht, Alarm."""
+    from app.database import SessionLocal
+    from app.models import Alert, Attempt
+    from app.services import alert as alert_service, tutor
+    from .test_library import register_pw
+
+    alert_service._last_sent.clear()
+
+    def leer(history, step, verification, ex_text, ex_expr, grade, image, usage_out, **kw):
+        usage_out["model"] = "claude-haiku-4-5"
+        usage_out["usage"] = {"input_tokens": 9000, "output_tokens": 700}
+        return iter([""])
+
+    monkeypatch.setattr(tutor, "stream_reply", leer)
+    headers = register_pw(client, "leer@test.ch")
+    ex = client.post("/api/exercises", headers=headers, json={"text": "Löse 3x + 5 = 20"}).json()
+    aid = client.post(f"/api/exercises/{ex['id']}/attempts", headers=headers).json()["attempt"]["id"]
+    vorher = client.get("/api/quota", headers=headers).json()
+    with client.stream("POST", f"/api/attempts/{aid}/chat", headers=headers, json={"text": "tipp"}) as r:
+        reply = "".join(r.iter_text())
+    assert "technische Probleme" in reply
+    assert client.get("/api/quota", headers=headers).json() == vorher   # nichts abgebucht
+    with SessionLocal() as db:
+        assert db.get(Attempt, aid).hint_level == 0                      # Stufe nicht geklettert
+        assert any(a.kind == "ki" and "Leere" in a.detail for a in db.query(Alert).all())
+    texte = [m["text"] for m in client.get(f"/api/attempts/{aid}", headers=headers).json()["messages"]]
+    assert not any("Erzähl mir, wie du an die Aufgabe rangehst" in t for t in texte)

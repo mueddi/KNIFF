@@ -320,6 +320,25 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
             if rest and not GELOEST_MARKER.startswith(rest):
                 parts.append(rest)
                 yield rest
+            # Leere Antwort ohne Fehlermeldung: in der Produktion viermal (19.–26.7.,
+            # Denken frass das Token-Budget). Unten stand dann still der Ersatzsatz
+            # «Erzähl mir, wie du an die Aufgabe rangehst.» – als echte Antwort mit
+            # Hilfe-Stufe, ohne Alarm, auch direkt nach einer richtigen Antwort.
+            # Jetzt wie ein Ausfall: ehrliche Meldung, Stufe bleibt, nichts
+            # abgebucht, Alarm an den Betreiber.
+            if (not usage_out.get("fehler") and not marker_gesehen
+                    and not _ohne_offenen_figur_block("".join(parts).strip())):
+                usage_out["fehler"] = usage_out["leer"] = True
+                alert.notify("ki", f"Leere Tutor-Antwort (Attempt {attempt_id_local}, "
+                                   f"Modell {usage_out.get('model', '?')}) – Ersatzmeldung gezeigt",
+                             key="leere_antwort")
+                leer = i18n.t(lang_local,
+                              "⚠️ Ich habe gerade technische Probleme und kann dir nicht richtig antworten. "
+                              "Schick deine Nachricht in einem Moment einfach nochmal – dein Fortschritt bleibt erhalten.",
+                              "⚠️ I'm having technical trouble right now and can't answer properly. "
+                              "Please send your message again in a moment – your progress is saved.")
+                parts = [leer]
+                yield leer
             # Nachrechnung der Tutor-Antwort: rein numerische Gleichungen per
             # SymPy pruefen; Fehler sichtbar korrigieren + Betreiber-Alarm.
             # Zitate der Kinder-Rechnung sind kein Fehler, und eine Korrektur
@@ -374,7 +393,7 @@ def chat(attempt_id: int, payload: ChatRequest, user: User = Depends(require_stu
                     # Verrechnung + Erfassung im selben Commit wie die Tutor-Message,
                     # damit charged_tokens nie vom tatsaechlich Abgebuchten abweicht.
                     charged = 0
-                    if stufe_local != "school":
+                    if stufe_local != "school" and not usage_out.get("leer"):
                         charged = usage.charged_tokens(
                             usage.cost_usd(usage_out.get("model", ""), usage_out["usage"]))
                         quota.charge(s, user_id_local, charged,
