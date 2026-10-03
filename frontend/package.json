@@ -8,7 +8,8 @@
     "build": "node scripts/keine-browser-dialoge.mjs && vite build",
     "pruefe:dialoge": "node scripts/keine-browser-dialoge.mjs",
     "preview": "vite preview",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "test:unit": "node --test src/lib/mathHtml.test.mjs"
   },
   "dependencies": {
     "katex": "^0.16.11",
